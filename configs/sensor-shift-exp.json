@@ -1,0 +1,74 @@
+{
+  "task": {
+    "class": {
+      "data-pairs":
+      {
+        "EuroSatRGB-EuroSatNS1S2": {
+        "finetune":  "EuroSAT_RGB",
+        "finetune_classes": ["AnnualCrop", "Forest", "HerbaceousVegetation", "Highway", "Industrial", "Pasture", "PermanentCrop", "Resedential", "River", "SeaLake"],
+        "test":  "EuroSAT_NS1S2",
+        "test_classes": ["AnnualCrop", "Forest", "HerbaceousVegetation", "Highway", "Industrial", "Pasture", "PermanentCrop", "Resedential", "River", "SeaLake"],
+        "img_channels":  3,
+        "finetune_wavelength":  "rgb",
+        "test_wavelength":  "ns1s2",
+        "filter":  false},
+        "EuroSatRGB-EuroSatRGE1": {
+          "finetune":  "EuroSAT_RGB",
+          "finetune_classes": ["AnnualCrop", "Forest", "HerbaceousVegetation", "Highway", "Industrial", "Pasture", "PermanentCrop", "Resedential", "River", "SeaLake"],
+          "test":  "EuroSAT_RGE1",
+          "test_classes": ["AnnualCrop", "Forest", "HerbaceousVegetation", "Highway", "Industrial", "Pasture", "PermanentCrop", "Resedential", "River", "SeaLake"],
+          "img_channels":  3,
+          "finetune_wavelength":  "rgb",
+          "test_wavelength":  "rge1",
+          "filter":  false},
+        "EuroSatRGB-EuroSatRE1E2": {
+          "finetune":  "EuroSAT_RGB",
+          "finetune_classes": ["AnnualCrop", "Forest", "HerbaceousVegetation", "Highway", "Industrial", "Pasture", "PermanentCrop", "Resedential", "River", "SeaLake"],
+          "test":  "EuroSAT_RE1E2",
+          "test_classes": ["AnnualCrop", "Forest", "HerbaceousVegetation", "Highway", "Industrial", "Pasture", "PermanentCrop", "Resedential", "River", "SeaLake"],
+          "img_channels":  3,
+          "finetune_wavelength":  "rgb",
+          "test_wavelength":  "re1e2",
+          "filter":  false},
+        "BenV2-S2-S1": {
+          "finetune": "BenV2-S2",
+          "finetune_classes": ["Urban fabric", "Industrial or commercial units", "Arable land", "Permanent crops",
+            "Pastures", "Complex cultivation patterns", "Land principally occupied by agriculture",
+            "Agro-forestry areas", "Broad-leaved forest", "Coniferous forest", "Mixed forest",
+            "Natural grassland and sparsely vegetated areas", "Moors, heathland and sclerophyllous vegetation",
+            "Transitional woodland, shrub", "Beaches, dunes, sands", "Inland wetlands", "Coastal wetlands",
+            "Inland waters", "Marine waters"],
+          "test": "BenV2-S1",
+          "test_classes": ["Urban fabric", "Industrial or commercial units", "Arable land", "Permanent crops",
+            "Pastures", "Complex cultivation patterns", "Land principally occupied by agriculture",
+            "Agro-forestry areas", "Broad-leaved forest", "Coniferous forest", "Mixed forest",
+            "Natural grassland and sparsely vegetated areas", "Moors, heathland and sclerophyllous vegetation",
+            "Transitional woodland, shrub", "Beaches, dunes, sands", "Inland wetlands", "Coastal wetlands",
+            "Inland waters", "Marine waters"],
+          "img_channels": 10,
+          "finetune_wavelength": "s2",
+          "test_wavelength": "s1",
+          "filter": false}
+        },
+        "models": ["DOFA", "CROMA", "Clay", "resnet18", "resnet50", "resnet152", "vit_base_patch14_dinov2", "vit_small_patch14_dinov2"]
+      },
+    "semseg": {
+      "data-pairs": {
+        "Sen1Floods11-S2-S1": {
+          "finetune": "Sen1Floods-S2",
+          "finetune_classes": [0, 1],
+          "test": "Sen1Floods-S1",
+          "test_classes": [0, 1],
+          "img_channels": 13,
+          "finetune_wavelength": "s2_13",
+          "test_wavelength": "s1",
+          "filter": false}
+      },
+      "models": ["DOFA", "CROMA", "Clay", "resnet18", "resnet50", "resnet152", "vit_base_patch14_dinov2", "vit_small_patch14_dinov2"]
+    },
+    "od": {
+      "data-pairs": {},
+      "models": {}
+    }
+  }
+}

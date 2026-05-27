@@ -1,0 +1,47 @@
+{
+  "task": {
+    "class": {
+      "data-pairs":
+      {
+        "RESISC45-UCMerced": {
+        "finetune":  "RESISC45",
+        "finetune_classes": ["airplane", "baseball_diamond", "beach", "chaparral", "dense_residential", "forest", "freeway", "golf_course", "harbor", "intersection", "medium_residential", "mobile_home_park", "overpass", "parking_lot", "river", "runway", "sparse_residential", "storage_tank", "tennis_court"],
+        "test":  "UCMerced",
+        "test_classes": ["airplane", "baseballdiamond", "beach", "chaparral", "denseresidential", "forest", "freeway", "golfcourse", "harbor", "intersection", "mediumresidential", "mobilehomepark", "overpass", "parkinglot", "river", "runway", "sparseresidential", "storagetanks", "tenniscourt"],
+        "img_channels":  3,
+        "finetune_wavelength":  "rgb",
+        "test_wavelength": "rgb",
+        "filter":  true},
+        "UCMerced-RESISC45": {
+          "finetune": "UCMerced",
+          "finetune_classes": ["airplane", "baseballdiamond", "beach", "chaparral", "denseresidential", "forest", "freeway", "golfcourse", "harbor", "intersection", "mediumresidential", "mobilehomepark", "overpass", "parkinglot", "river", "runway", "sparseresidential", "storagetanks", "tenniscourt"],
+          "test": "RESISC45",
+          "test_classes": ["airplane", "baseball_diamond", "beach", "chaparral", "dense_residential", "forest", "freeway", "golf_course", "harbor", "intersection", "medium_residential", "mobile_home_park", "overpass", "parking_lot", "river", "runway", "sparse_residential", "storage_tank", "tennis_court"],
+          "img_channels": 3,
+          "finetune_wavelength":  "rgb",
+          "test_wavelength": "rgb",
+          "filter":  true
+      },
+        "BigEarthNet-EuroSat": {
+          "finetune": "BigEarthNet",
+          "finetune_classes": [],
+          "test": "EuroSat",
+          "test_classes": [],
+          "img_channels": 10,
+          "finetune_wavelength": "s2",
+          "test_wavelength": "s2",
+          "filter":  true}
+      },
+      "models": ["DOFA", "CROMA", "resnet18", "resnet50", "resnet152", "dinov3_large_sat", "Clay", "terrafm",
+        "olmo-earth", "galileo"]
+    },
+    "semseg": {
+      "data-pairs": {"test-pair": "None"},
+      "models": {}
+    },
+    "od": {
+      "data-pairs": {"test-pair": "None"},
+      "models": {}
+    }
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "task": {
+    "semseg": {
+      "data-pairs":
+      {
+        "ftw-germany-year": {
+        "finetune":  "germany",
+        "finetune_classes": [0,1,2],
+        "test":  "germany",
+        "test_classes": [0,1,2],
+        "img_channels":  4,
+        "finetune_wavelength":  "rgbn",
+        "test_wavelength": "rgbn",
+        "filter":  false},
+        "ftw-germany-window": {
+        "finetune":  "germany",
+        "finetune_classes": [0,1,2],
+        "test":  "germany",
+        "test_classes": [0,1,2],
+        "img_channels":  4,
+        "finetune_wavelength":  "rgbn",
+        "test_wavelength": "rgbn",
+        "filter":  false},
+        "ftw-cambodia-window": {
+        "finetune":  "cambodia",
+        "finetune_classes": [0,1,2],
+        "test":  "cambodia",
+        "test_classes": [0,1,2],
+        "img_channels":  4,
+        "finetune_wavelength":  "rgbn",
+        "test_wavelength": "rgbn",
+        "filter":  false},
+        "ftw-south_africa-window": {
+        "finetune":  "south_africa",
+        "finetune_classes": [0,1,2],
+        "test":  "south_africa",
+        "test_classes": [0,1,2],
+        "img_channels":  4,
+        "finetune_wavelength":  "rgbn",
+        "test_wavelength": "rgbn",
+        "filter":  false},
+        "ftw-brazil-window": {
+        "finetune":  "brazil",
+        "finetune_classes": [0,1,2],
+        "test":  "brazil",
+        "test_classes": [0,1,2],
+        "img_channels":  4,
+        "finetune_wavelength":  "rgbn",
+        "test_wavelength": "rgbn",
+        "filter":  false},
+        "ftw-kenya-window": {
+        "finetune":  "kenya",
+        "finetune_classes": [0,1,2],
+        "test":  "kenya",
+        "test_classes": [0,1,2],
+        "img_channels":  4,
+        "finetune_wavelength":  "rgbn",
+        "test_wavelength": "rgbn",
+        "filter":  false},
+        "ftw-all-window": {
+        "finetune":  "all",
+        "finetune_classes": [0,1,2],
+        "test":  "all",
+        "test_classes": [0,1,2],
+        "img_channels":  4,
+        "finetune_wavelength":  "rgbn",
+        "test_wavelength": "rgbn",
+        "filter":  false},
+      "models": ["DOFA", "CROMA", "resnet18", "resnet50", "resnet152", "dinov3_large_sat", "Clay", "terrafm",
+        "olmo-earth", "galileo"]
+    }
+  }
+}
+}

@@ -1,5 +1,8 @@
 # 🌍 EarthShift Testbed
 
+| [Project Website](https://earthshift.github.io) | Arxiv - Coming Soon |
+|:---:|:---:|
+
 **EarthShift** is the first public testbed for benchmarking the robustness of geospatial foundation models (GFMs) across multiple realistic distribution shifts encountered in remote sensing.
 
 > Current Earth observation benchmarks focus on measuring performance on diverse tasks and applications, typically measuring generalization *in-distribution*. But when models are deployed, they must generalize to myriad *out-of-distribution* scenarios — new time periods, geographies, scales, and sensors. **EarthShift** is designed to close this gap.

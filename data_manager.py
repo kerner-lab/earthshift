@@ -5,7 +5,7 @@ import json
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-from torchgeo.datasets import RESISC45, UCMerced
+from torchgeo.datasets import RESISC45, UCMerced, NLCD
 from geobench_v2.datasets.benv2 import GeoBenchBENV2
 import os
 import rasterio
@@ -17,6 +17,8 @@ from PIL import Image
 import h5py
 from torch.utils.data import Dataset
 import json
+import re
+import collections
 from pathlib import Path
 import numpy as np
 
@@ -622,6 +624,28 @@ class Sen1Floods11(Dataset):
         return image, label
 
 
+def ucmerced_split_size(root_dir, split, keep_classes):
+    """
+    Number of UCMerced samples in `split`, restricted to `keep_classes`.
+
+    Read straight from the torchgeo split file rather than by instantiating the
+    dataset, which would decode every image just to count labels. Used to size
+    the RESISC45-UCMerced-sub finetuning set so the budget is derived from the
+    data rather than hardcoded.
+    """
+    path = os.path.join(root_dir, 'UCMerced', 'uc_merced-{}.txt'.format(split))
+    keep = set(keep_classes)
+    n = 0
+    with open(path) as fh:
+        for line in fh:
+            name = line.strip().split('/')[-1]
+            if not name:
+                continue
+            if re.sub(r'\d+\.tif$', '', name) in keep:
+                n += 1
+    return n
+
+
 class DataManager:
     """
     Data Manager class
@@ -657,7 +681,9 @@ class DataManager:
         """
         dataset = None
         match self.dataset_pair:
-            case "RESISC45-UCMerced":
+            case "RESISC45-UCMerced" | "RESISC45-UCMerced-sub":
+                # -sub is the same pair; it only differs by the finetuning-set
+                # subsample applied in get_filtered_dataset.
                 if finetune_state == "in":
                     dataset = RESISC45(root=self.root_dir + '/' + 'RESISC45', split=split, download=False)
                 elif finetune_state == "out":
@@ -815,7 +841,7 @@ class DataManager:
         """
 
         def __init__(self, dataset, task, keep_classes=None, ignore_px=None, transform=None,
-                     mask=False, model_name=None):
+                     mask=False, model_name=None, subsample_total=None, subsample_seed=42):
             self.dataset = dataset
             self.task = task
             self.keep_classes = keep_classes
@@ -823,6 +849,8 @@ class DataManager:
             self.transform = transform
             self.mask = mask
             self.model_name = model_name
+            self.subsample_total = subsample_total
+            self.subsample_seed = subsample_seed
 
             if not keep_classes:
                 raise ValueError("You must provide at least one class to keep.")
@@ -845,18 +873,64 @@ class DataManager:
             # New mapping (alphabetical): class_name -> new index
             class_to_new_index = {cls: i for i, cls in enumerate(keep_classes_sorted)}
 
-            # Filter indices
-            indices = []
+            # Filter indices, grouped by class so they can be subsampled per class
+            by_class = collections.defaultdict(list)
             for idx in range(len(self.dataset)):
                 sample = self.dataset[idx]
                 label = sample["label"]
                 label_name = self.dataset.classes[label.item()]
 
                 if label_name in keep_classes_sorted:
-                    indices.append(idx)
+                    by_class[label_name].append(idx)
 
+            if self.subsample_total:
+                by_class = self.stratified_subsample(by_class, self.subsample_total,
+                                                     self.subsample_seed)
+
+            indices = sorted(i for idxs in by_class.values() for i in idxs)
             print(f"Filtered classification dataset: {len(indices)} samples for classes {keep_classes_sorted}")
             return indices, class_to_new_index
+
+
+        @staticmethod
+        def stratified_subsample(by_class, total, seed):
+            """
+            Cut a class-indexed dict of sample indices down to `total` samples.
+
+            Allocation is proportional to each class's share of the full dataset,
+            not matched to the per-class counts of the paired dataset. The point of
+            a -sub variant is to isolate finetuning-set size, so the class prior has
+            to stay that of the source dataset -- copying the target's prior would
+            change two things at once and make the comparison unattributable.
+
+            Largest-remainder rounding hits `total` exactly, and every class keeps
+            at least one sample so a small class is never emptied.
+            """
+            classes = sorted(by_class)
+            sizes = np.array([len(by_class[c]) for c in classes], dtype=float)
+            n = sizes.sum()
+            if total >= n:
+                print(f"Subsample target {total} >= available {int(n)}, keeping all")
+                return by_class
+
+            exact = sizes / n * total
+            take = np.floor(exact).astype(int)
+            rem = int(total - take.sum())
+            if rem > 0:
+                take[np.argsort(-(exact - take))[:rem]] += 1
+
+            rng = np.random.default_rng(seed)
+            out = {}
+            for cls, k in zip(classes, take):
+                idxs = by_class[cls]
+                k = int(min(max(k, 1), len(idxs)))
+                out[cls] = sorted(rng.choice(idxs, size=k, replace=False).tolist())
+
+            kept = sum(len(v) for v in out.values())
+            per = [len(out[c]) for c in classes]
+            print(f"Stratified subsample: {int(n)} -> {kept} samples "
+                  f"({len(classes)} classes, per-class min={min(per)} max={max(per)}, seed={seed})")
+            return out
 
 
         def filter_semseg(self, mask):
@@ -1007,6 +1081,20 @@ class DataManager:
         if not keep_classes:
             raise ValueError("You must provide at least one class to keep.")
 
+        # RESISC45-UCMerced-sub: cut the RESISC45 finetuning set down to the size
+        # of the UCMerced one, so that pair can be compared against
+        # UCMerced-RESISC45 without a 6.9x difference in finetuning data
+        # confounding the result. Applied to the splits that are actually fitted
+        # on (train, and val for model selection); the ID test split is left at
+        # full size so it stays identical to the un-subsampled pair and gives a
+        # lower-variance ID estimate.
+        subsample_total = None
+        if self.dataset_pair == 'RESISC45-UCMerced-sub' and finetune_state == 'in' \
+                and split in ('train', 'val'):
+            subsample_total = ucmerced_split_size(
+                self.root_dir, split, self.config_task['test_classes'])
+            print(f"[{self.dataset_pair}] {split}: targeting UCMerced size {subsample_total}")
+
         # Filter for class or semseg, hardcoded ignore_px to 255 for testing
         filtered = DataManager._FilteredDataset(
             dataset=dataset,
@@ -1015,7 +1103,8 @@ class DataManager:
             ignore_px=255,
             transform=self.transform,
             mask=self.mask,
-            model_name=self.model_name
+            model_name=self.model_name,
+            subsample_total=subsample_total,
         )
 
         return filtered

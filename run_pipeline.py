@@ -155,7 +155,7 @@ if __name__ == '__main__':
 
     # Loading OOD data
     try:
-        if data_pair == 'RESISC45-UCMerced':
+        if data_pair in ('RESISC45-UCMerced', 'RESISC45-UCMerced-sub'):
             split = 'train'
         else:
             split = 'test'

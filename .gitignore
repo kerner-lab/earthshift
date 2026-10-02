@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editors / IDEs
+.idea/
+.vscode/
+
+# Claude Code local settings (project settings.json is shareable, this is not)
+.claude/settings.local.json
+
+# OS
+.DS_Store
+
+# Run logs and scratch output
+*.log

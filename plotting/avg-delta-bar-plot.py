@@ -88,8 +88,8 @@ def add_value_labels(bars):
                 ha='center', va='top', fontsize=11, fontweight='bold')
 
 
-add_value_labels(bars1)
-add_value_labels(bars2)
+#add_value_labels(bars1)
+#add_value_labels(bars2)
 
 # Customize plot
 ax.set_ylabel('Average Performance Gap (Δ = ID - OOD)', fontsize=14, fontweight='bold')

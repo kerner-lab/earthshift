@@ -169,7 +169,7 @@ def predict(model,
     # Criteria
     multi_label = False
     if task == 'class':
-        if dataset_pair == 'BenV2-S2-S1':
+        if dataset_pair in ('BenV2-S2-S1', 'BenV2-L2A-L1C'):
             class_criterion = torch.nn.BCEWithLogitsLoss()
             multi_label = True
         else:

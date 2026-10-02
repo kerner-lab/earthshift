@@ -23,7 +23,7 @@ def get_args():
     parser.add_argument('--task', help='Model task. Must be one of class, semseg, od')
     parser.add_argument('--model', help='Model to test')
     parser.add_argument('--shift', help='Shift type to run experiment. Must be one of data, sensor, '
-                                        'location, temporal.')
+                                        'processing, location, temporal.')
     parser.add_argument('--dataset_pair', help='Dataset pair for experiment. Must be one of:'
                                                'RESISC45-UCMerced')
     parser.add_argument('--finetune_type', help='Finetune task, either the final head or the entire model,'
@@ -180,7 +180,7 @@ if __name__ == '__main__':
 
 
     # For lr-sweep on large sensor-shift datasets, use 20% subset to speed up experiment
-    if tag == 'lr-sweep' and data_pair in ('Sen1Floods11-S2-S1', 'BenV2-S2-S1'):
+    if tag == 'lr-sweep' and data_pair in ('Sen1Floods11-S2-S1', 'BenV2-S2-S1', 'BenV2-L2A-L1C'):
         subset_generator = torch.Generator().manual_seed(seed)
         for name, ds in [('train', finetune_dataset_train), ('val', finetune_dataset_val),
                          ('test', finetune_dataset_test), ('ood_test', test_dataset)]:

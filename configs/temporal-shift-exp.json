@@ -57,6 +57,15 @@
         "finetune_wavelength":  "rgbn",
         "test_wavelength": "rgbn",
         "filter":  false},
+        "rpg-france-year": {
+        "finetune":  "2017",
+        "finetune_classes": [0,1,2],
+        "test":  "2022",
+        "test_classes": [0,1,2],
+        "img_channels":  4,
+        "finetune_wavelength":  "rgbn",
+        "test_wavelength": "rgbn",
+        "filter":  false},
         "ftw-all-window": {
         "finetune":  "all",
         "finetune_classes": [0,1,2],

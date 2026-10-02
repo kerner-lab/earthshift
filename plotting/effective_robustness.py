@@ -33,7 +33,7 @@ full_filename = args.full_filename
 # ============================================================================
 
 FROZEN_CSV = '{}/{}.csv'.format(root_dir, frozen_filename)
-FULL_CSV = '{}/{}.csv'.format(root_dir, frozen_filename)
+FULL_CSV = '{}/{}.csv'.format(root_dir, full_filename)
 OUTPUT_DIR = '{}/effective'.format(root_dir)
 
 # Task groupings by shift type

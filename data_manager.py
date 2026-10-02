@@ -18,6 +18,7 @@ import h5py
 from torch.utils.data import Dataset
 import json
 import re
+import csv
 import collections
 from pathlib import Path
 import numpy as np
@@ -624,6 +625,36 @@ class Sen1Floods11(Dataset):
         return image, label
 
 
+class GeoBenchBENV2L1C(GeoBenchBENV2):
+    """
+    BigEarthNet-v2 test split with S2 read from the matching L1C
+    re-chips. Re-chips are built by processing-shift/benv2-l1c.py.
+    """
+
+    def __init__(self, root, l1c_root, band_order, **kwargs):
+        if set(band_order) != {'s2'}:
+            raise ValueError("GeoBenchBENV2L1C only provides the 's2' modality")
+        super().__init__(root=root, split='test', band_order=band_order, **kwargs)
+        self.l1c_root = l1c_root
+
+        with open(os.path.join(l1c_root, 'chips.csv'), newline='') as f:
+            ok = {r['patch_id'] for r in csv.DictReader(f) if r['status'] == 'ok'}
+        n_all = len(self.data_df)
+        self.data_df = self.data_df[self.data_df['patch_id'].isin(ok)].reset_index(drop=True)
+        if len(self.data_df) != n_all:
+            print(f'WARNING: {n_all - len(self.data_df)} BenV2 test patches have no L1C chip; '
+                  'the ID test set should be restricted to the same patches')
+
+    def __getitem__(self, index):
+        row = self.data_df.iloc[index]
+        with rasterio.open(os.path.join(self.l1c_root, 'S2', f"{row['patch_id']}.tif")) as src:
+            data = {'s2': torch.from_numpy(src.read()).float()}
+
+        sample = self.data_normalizer(self.rearrange_bands(data, self.band_order))
+        sample['label'] = self._load_target(row['labels'])
+        return sample
+
+
 def ucmerced_split_size(root_dir, split, keep_classes):
     """
     Number of UCMerced samples in `split`, restricted to `keep_classes`.
@@ -658,6 +689,10 @@ class DataManager:
         self.dataset_pair = dataset_pair
         self.config_task = config_task
         self.data_pair = data_pair
+        # RPG France mirrors the FTW task exactly (4-band R,G,B,NIR uint16 at 10 m,
+        # 3-class semseg), so it reuses the FTW normalisation statistics below.
+        self.ftw_like = any(k in f"{dataset_pair} {data_pair}".lower()
+                            for k in ("ftw", "rpg"))
         self.transform = transform
         self.mask = mask
         self.imagenet_mean = [0.485, 0.456, 0.406]
@@ -731,6 +766,12 @@ class DataManager:
                     finetune_state=finetune_state,
                     debug=os.environ.get('FTW_DEBUG', '0') == '1',
                 )
+            case _ if "rpg" in self.dataset_pair.lower():
+                # Same loader as FTW: the RPG year directory (2017 / 2022) takes the
+                # slot FTW uses for the country, and the layout below it is identical.
+                dataset = FTWDataset(config_task=self.config_task, data_pair=self.data_pair,
+                                     data_dir=self.root_dir + '/' + 'rpg_france', split=split,
+                                     finetune_state=finetune_state)
             case _ if "ftw" in self.dataset_pair.lower():
                 dataset = FTWDataset(config_task=self.config_task, data_pair=self.data_pair,
                                      data_dir=self.root_dir + '/' + 'ftw', split=split,
@@ -744,6 +785,17 @@ class DataManager:
                 elif finetune_state == "out":
                     dataset = GeoBenchBENV2(root=self.root_dir + '/' + 'benv2', split=split,
                                             band_order={'s1': s1_bands}, return_stacked_image=False)
+            case "BenV2-L2A-L1C":
+                s2_bands = ['B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B11', 'B12']
+                if finetune_state == "in":
+                    dataset = GeoBenchBENV2(root=self.root_dir + '/' + 'benv2', split=split,
+                                            band_order={'s2': s2_bands}, return_stacked_image=False)
+                elif finetune_state == "out":
+                    if split != 'test':
+                        raise FileNotFoundError("BenV2 L1C re-chips only exist for the test split")
+                    dataset = GeoBenchBENV2L1C(root=self.root_dir + '/' + 'benv2',
+                                               l1c_root=self.root_dir + '/' + 'benv2_l1c',
+                                               band_order={'s2': s2_bands})
             case _:
                 raise ValueError("Invalid dataset pair")
 
@@ -763,7 +815,7 @@ class DataManager:
                     t.append(transforms.Normalize(
                         mean=self.s2_mean ,
                         std=self.s2_std))
-                elif "ftw" in self.dataset_pair.lower():
+                elif self.ftw_like:
                     t.append(transforms.Normalize(
                         mean=self.ftw_mean,
                         std=self.ftw_std))
@@ -780,7 +832,7 @@ class DataManager:
                     t.append(transforms.Normalize(
                         mean=self.s2_mean,
                         std=self.s2_std))
-                elif "ftw" in self.dataset_pair.lower():
+                elif self.ftw_like:
                     t.append(transforms.Normalize(
                         mean=self.ftw_mean,
                         std=self.ftw_std))
@@ -797,7 +849,7 @@ class DataManager:
                     t.append(transforms.Normalize(
                         mean=self.s2_mean,
                         std=self.s2_std))
-                elif "ftw" in self.dataset_pair.lower():
+                elif self.ftw_like:
                     t.append(transforms.Normalize(
                         mean=self.ftw_mean,
                         std=self.ftw_std))
@@ -815,7 +867,7 @@ class DataManager:
                 if "BenV2" in self.dataset_pair or "Sen1Floods11" in self.dataset_pair:
                     # Already normalised in dataset __getitem__
                     pass
-                elif "ftw" in self.data_pair.lower():         # ftw has 4 channels
+                elif self.ftw_like:                          # ftw/rpg have 4 channels
                     t.append(transforms.Normalize(
                         mean=self.ftw_mean,
                         std=self.ftw_std,

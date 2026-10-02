@@ -1,7 +1,12 @@
 # 🌍 EarthShift Testbed
 
-| [Project Website](https://earthshift.github.io) | [Arxiv](https://arxiv.org/abs/2605.29330) |
+| [Project Website](https://earthshift.github.io) | [arXiv](https://arxiv.org/abs/2605.29330) |
 |:---:|:---:|
+
+The code corresponding to the arXiv preprint is tagged v1.0-arxiv. To reproduce those results: 
+```bash
+git checkout v1.0-arxiv
+```
 
 **EarthShift** is the first public testbed for benchmarking the robustness of geospatial foundation models (GFMs) across multiple realistic distribution shifts encountered in remote sensing.
 

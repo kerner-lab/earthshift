@@ -8,7 +8,9 @@ from torchvision import transforms
 from torchgeo.datasets import RESISC45, UCMerced, NLCD
 from geobench_v2.datasets.benv2 import GeoBenchBENV2
 import os
+import glob
 import rasterio
+from rasterio.windows import Window
 from torchvision.io import read_image
 from torchvision.transforms import InterpolationMode
 import torchvision.transforms.functional as TF
@@ -625,6 +627,86 @@ class Sen1Floods11(Dataset):
         return image, label
 
 
+class ChesapeakeCVPRDataset(Dataset):
+    """
+    Chesapeake CVPR 2019 land cover, chipped 1 m tiles, for
+    Landsat <-> NAIP scale shift.
+    Chips with NaN in either sensor are dropped from both, so the Landsat and NAIP
+    chip sets are identical. The chip index is cached per split in the tile dir.
+    EarthShift uses torchgeo's 5-class set: barren (4), impervious other (5) and roads (6)
+    merged into one class
+    """
+
+    # file suffix, RGBN band indexes (1-based), mean, std
+    SENSORS = {
+        'NAIP': ('naip-new', [1, 2, 3, 4],
+                 [117.57, 133.42, 128.45, 189.68], [42.65, 35.67, 25.04, 43.62]),
+        'Landsat': ('landsat-leaf-on', [4, 3, 2, 5],
+                    [583.87, 676.59, 398.23, 3366.94], [322.53, 238.82, 187.86, 605.79]),
+    }
+    # torchgeo keeps nodata as class 0 and ignores it; here it
+    # goes to 255 (ignore_index), leaving the 4 real classes as model outputs.
+    # lc 1 -> 0, 2 -> 1, 3 -> 2, 4/5/6 -> 3; 0 (unlabelled) and 15 (no data) -> 255
+    classes = ['water', 'tree_canopy', 'low_vegetation', 'impervious_barren']
+
+    def __init__(self, root, sensor, split, state='de', chip_size=256):
+        dirs = glob.glob(f'{root}/{state}_1m_*_extended-debuffered-{split}_tiles')
+        if len(dirs) != 1:
+            raise FileNotFoundError(f'Expected one {state} {split} tile dir in {root}, found {dirs}')
+        self.tile_dir = dirs[0]
+        self.suffix, self.bands, mean, std = self.SENSORS[sensor]
+        self.mean = torch.tensor(mean).view(-1, 1, 1)
+        self.std = torch.tensor(std).view(-1, 1, 1)
+        self.chip_size = chip_size
+        self.lut = np.full(256, 255, dtype=np.int64)
+        self.lut[1:7] = [0, 1, 2, 3, 3, 3]
+        self.samples = self._chip_index()
+        print(f'ChesapeakeCVPR {state} {split} ({sensor}): {len(self.samples)} chips')
+
+    def _chip_index(self):
+        cache = f'{self.tile_dir}/chips_{self.chip_size}.json'
+        if os.path.exists(cache):
+            with open(cache) as f:
+                return [tuple(s) for s in json.load(f)]
+
+        c = self.chip_size
+        samples = []
+        for lc_path in sorted(glob.glob(f'{self.tile_dir}/*_lc.tif')):
+            tile = os.path.basename(lc_path)[:-len('_lc.tif')]
+            with rasterio.open(lc_path) as src:
+                labels = self.lut[src.read(1)]
+            invalid = np.zeros(labels.shape, dtype=bool)
+            for suffix, bands, _, _ in self.SENSORS.values():
+                with rasterio.open(f'{self.tile_dir}/{tile}_{suffix}.tif') as src:
+                    invalid |= np.isnan(src.read(bands).astype(np.float32)).any(axis=0)
+            H, W = labels.shape[0] // c, labels.shape[1] // c
+            grid_bad = invalid[:H * c, :W * c].reshape(H, c, W, c).any(axis=(1, 3))
+            grid_empty = (labels[:H * c, :W * c] == 255).reshape(H, c, W, c).all(axis=(1, 3))
+            samples += [(tile, r * c, k * c) for r in range(H) for k in range(W)
+                        if not grid_bad[r, k] and not grid_empty[r, k]]
+
+        tmp = f'{cache}.{os.getpid()}.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(samples, f)
+        os.replace(tmp, cache)
+        return samples
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        tile, row, col = self.samples[idx]
+        window = Window(col, row, self.chip_size, self.chip_size)
+
+        with rasterio.open(f'{self.tile_dir}/{tile}_{self.suffix}.tif') as src:
+            image = torch.from_numpy(src.read(self.bands, window=window).astype(np.float32))
+        with rasterio.open(f'{self.tile_dir}/{tile}_lc.tif') as src:
+            label = torch.from_numpy(self.lut[src.read(1, window=window)])
+
+        image = (image - self.mean) / self.std
+        return image, label
+
+
 class GeoBenchBENV2L1C(GeoBenchBENV2):
     """
     BigEarthNet-v2 test split with S2 read from the matching L1C
@@ -693,6 +775,8 @@ class DataManager:
         # 3-class semseg), so it reuses the FTW normalisation statistics below.
         self.ftw_like = any(k in f"{dataset_pair} {data_pair}".lower()
                             for k in ("ftw", "rpg"))
+        # These datasets normalise in their own __getitem__, so the model transforms skip it.
+        self.prenormalized = any(k in dataset_pair for k in ("BenV2", "Sen1Floods11", "ChesapeakeCVPR"))
         self.transform = transform
         self.mask = mask
         self.imagenet_mean = [0.485, 0.456, 0.406]
@@ -778,13 +862,21 @@ class DataManager:
                                      finetune_state=finetune_state)
             case "BenV2-S2-S1":
                 s2_bands = ['B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B11', 'B12']
-                s1_bands = ['VV', 'VH']
+                # GEO-Bench-2 writes the S1 GeoTIFFs as [VH, VV] (generate_benchmark/benv2.py) but
+                # GeoBenchBENV2 labels file band 1 'VV' and band 2 'VH' (its stats carry the same
+                # mislabel). Asking for ['VH', 'VV'] therefore returns physical [VV, VH], each
+                # z-scored with the stats computed for that file band.
+                s1_bands = ['VH', 'VV']
                 if finetune_state == "in":
                     dataset = GeoBenchBENV2(root=self.root_dir + '/' + 'benv2', split=split,
                                             band_order={'s2': s2_bands}, return_stacked_image=False)
                 elif finetune_state == "out":
                     dataset = GeoBenchBENV2(root=self.root_dir + '/' + 'benv2', split=split,
                                             band_order={'s1': s1_bands}, return_stacked_image=False)
+            case _ if self.dataset_pair.startswith("ChesapeakeCVPR"):
+                sensor = self.config_task['finetune' if finetune_state == 'in' else 'test']
+                dataset = ChesapeakeCVPRDataset(root=self.root_dir + '/' + 'cvpr_chesapeake_landcover',
+                                                sensor=sensor, split=split)
             case "BenV2-L2A-L1C":
                 s2_bands = ['B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B11', 'B12']
                 if finetune_state == "in":
@@ -819,7 +911,7 @@ class DataManager:
                     t.append(transforms.Normalize(
                         mean=self.ftw_mean,
                         std=self.ftw_std))
-                elif "BenV2" in self.dataset_pair or "Sen1Floods11" in self.dataset_pair:
+                elif self.prenormalized:
                     # Already normalised in dataset __getitem__
                     pass
                 else:
@@ -836,7 +928,7 @@ class DataManager:
                     t.append(transforms.Normalize(
                         mean=self.ftw_mean,
                         std=self.ftw_std))
-                elif "BenV2" in self.dataset_pair or "Sen1Floods11" in self.dataset_pair:
+                elif self.prenormalized:
                     # Already normalised in dataset __getitem__
                     pass
                 else:
@@ -853,7 +945,7 @@ class DataManager:
                     t.append(transforms.Normalize(
                         mean=self.ftw_mean,
                         std=self.ftw_std))
-                elif "BenV2" in self.dataset_pair or "Sen1Floods11" in self.dataset_pair:
+                elif self.prenormalized:
                     # Already normalised in dataset __getitem__
                     pass
                 else:
@@ -864,7 +956,7 @@ class DataManager:
                  | "vit_random":
                 t.append(transforms.Resize((224, 224)))
                 t.append(transforms.ConvertImageDtype(torch.float32))
-                if "BenV2" in self.dataset_pair or "Sen1Floods11" in self.dataset_pair:
+                if self.prenormalized:
                     # Already normalised in dataset __getitem__
                     pass
                 elif self.ftw_like:                          # ftw/rpg have 4 channels

@@ -45,7 +45,28 @@
         "olmo-earth", "galileo"]
     },
     "semseg": {
-      "data-pairs": {"test-pair": "None"},
+      "data-pairs": {
+        "ChesapeakeCVPR-Landsat-NAIP": {
+          "finetune": "Landsat",
+          "finetune_classes": ["water", "tree_canopy", "low_vegetation", "impervious_barren"],
+          "test": "NAIP",
+          "test_classes": ["water", "tree_canopy", "low_vegetation", "impervious_barren"],
+          "img_channels": 4,
+          "finetune_wavelength": "rgbn",
+          "test_wavelength": "rgbn",
+          "filter": false
+        },
+        "ChesapeakeCVPR-NAIP-Landsat": {
+          "finetune": "NAIP",
+          "finetune_classes": ["water", "tree_canopy", "low_vegetation", "impervious_barren"],
+          "test": "Landsat",
+          "test_classes": ["water", "tree_canopy", "low_vegetation", "impervious_barren"],
+          "img_channels": 4,
+          "finetune_wavelength": "rgbn",
+          "test_wavelength": "rgbn",
+          "filter": false
+        }
+      },
       "models": {}
     },
     "od": {

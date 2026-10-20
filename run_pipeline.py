@@ -80,7 +80,7 @@ if __name__ == '__main__':
     experiment = wandb.init(project=args.wandb_project,
                             dir='{}/tmp/wandb'.format(root_dir),
                             resume='allow',
-                            anonymous='must',
+                            anonymous='allow',
                             tags=[tag])
 
 
@@ -153,38 +153,47 @@ if __name__ == '__main__':
     else:
         print('Finetuning testing data loaded!')
 
-    # Loading OOD data
-    try:
-        if data_pair in ('RESISC45-UCMerced', 'RESISC45-UCMerced-sub'):
-            split = 'train'
-        else:
-            split = 'test'
-        test_dataset = datamanager.get_filtered_dataset(finetune_state='out', split=split,
-                                                        keep_classes=config_task['test_classes'],
-                                                        filter=config_task['filter'])
-        print('OOD testing data loaded!')
-    except (AssertionError, FileNotFoundError) as e:
-        print('Test set data from OOD dataset {} not available. Using the other data from {} for OOD inference... '.
-              format(config_task['test'], config_task['test']))
-        split = 'train'
-        test_dataset = datamanager.get_filtered_dataset(finetune_state='out', split=split,
-                                                        keep_classes=config_task['test_classes'],
-                                                        filter=config_task['filter'])
-        print('Loaded {} data to be used to test ood performance after finetuning'.format(split))
+    # For lr-sweep on Chesapeake, only train/val are used: subset them and skip all testing
+    train_val_only = tag == 'lr-sweep' and data_pair.startswith('ChesapeakeCVPR')
 
-        if len(test_dataset) == 0:
-            print('ERROR: Training data is also empty! Cannot run OOD testing.')
-            sys.exit(0)
-        else:
-            print('Successfully loaded {} samples from the {} split'.format(len(test_dataset), split))
+    # Loading OOD data
+    test_dataset = None
+    if train_val_only:
+        print('lr-sweep on {}: skipping OOD test data'.format(data_pair))
+    else:
+        try:
+            if data_pair in ('RESISC45-UCMerced', 'RESISC45-UCMerced-sub'):
+                split = 'train'
+            else:
+                split = 'test'
+            test_dataset = datamanager.get_filtered_dataset(finetune_state='out', split=split,
+                                                            keep_classes=config_task['test_classes'],
+                                                            filter=config_task['filter'])
+            print('OOD testing data loaded!')
+        except (AssertionError, FileNotFoundError) as e:
+            print('Test set data from OOD dataset {} not available. Using the other data from {} for OOD inference... '.
+                  format(config_task['test'], config_task['test']))
+            split = 'train'
+            test_dataset = datamanager.get_filtered_dataset(finetune_state='out', split=split,
+                                                            keep_classes=config_task['test_classes'],
+                                                            filter=config_task['filter'])
+            print('Loaded {} data to be used to test ood performance after finetuning'.format(split))
+
+            if len(test_dataset) == 0:
+                print('ERROR: Training data is also empty! Cannot run OOD testing.')
+                sys.exit(0)
+            else:
+                print('Successfully loaded {} samples from the {} split'.format(len(test_dataset), split))
 
 
     # For lr-sweep on large sensor-shift datasets, use 20% subset to speed up experiment
-    if tag == 'lr-sweep' and data_pair in ('Sen1Floods11-S2-S1', 'BenV2-S2-S1', 'BenV2-L2A-L1C'):
+    if tag == 'lr-sweep' and (data_pair in ('Sen1Floods11-S2-S1', 'BenV2-S2-S1', 'BenV2-L2A-L1C') or train_val_only):
         subset_generator = torch.Generator().manual_seed(seed)
         for name, ds in [('train', finetune_dataset_train), ('val', finetune_dataset_val),
                          ('test', finetune_dataset_test), ('ood_test', test_dataset)]:
             if ds is None:
+                continue
+            if train_val_only and name not in ('train', 'val'):
                 continue
             subset_frac = 0.2 if data_pair == 'Sen1Floods11-S2-S1' else 0.1
             keep = max(1, math.ceil(len(ds) * subset_frac))
@@ -232,7 +241,9 @@ if __name__ == '__main__':
              waves=train_waves, num_classes=len(config_task['test_classes']), dataset_pair=data_pair,
              checkpoint_every=checkpoint_every, resume_checkpoint=resume_checkpoint, seed=seed)
 
-    if 'BenV2-S2-S1' in data_pair or 'Sen1Floods11-S2-S1' in data_pair:
+    if train_val_only:
+        print('lr-sweep on {}: skipping test set inference'.format(data_pair))
+    elif 'BenV2-S2-S1' in data_pair or 'Sen1Floods11-S2-S1' in data_pair:
         run_s2_to_s1_sensor_shift(model, model_type, test_dataset, finetune_dataset_test, task, save_dir, experiment,
                                    batch_size, config_task, train_waves, device, data_pair)
     else:

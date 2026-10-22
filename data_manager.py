@@ -969,6 +969,9 @@ class DataManager:
                     t.append(transforms.Normalize(
                         mean=self.s2_mean,
                         std=self.s2_std))
+                elif self.prenormalized:
+                    # Already normalised in dataset __getitem__
+                    pass
                 else:
                     t.append(transforms.Normalize(
                         mean=self.imagenet_mean,

@@ -707,6 +707,49 @@ class ChesapeakeCVPRDataset(Dataset):
         return image, label
 
 
+class BRIGHTDataset(Dataset):
+    """
+    BRIGHT (DFC25 track 2) building damage, 256x256 crops made by data-processing/bright_crops.py.
+    Returns the pre event optical (3 bands) and post event SAR (1 band) images stacked on the
+    channel dim, to be used with SiameseLateFusion.
+    Labels: 0 background, 1 intact, 2 damaged, 3 destroyed
+    Mean and std are from the turkey-earthquake train crops (R, G, B, SAR)
+    """
+
+    MEAN = [115.51, 105.01, 95.35, 48.47]
+    STD = [70.53, 62.0, 57.87, 37.18]
+    classes = ['background', 'intact', 'damaged', 'destroyed']
+
+    def __init__(self, root, aoi, split):
+        split_file = f'{root}/{aoi}_{split}.txt'
+        if not os.path.exists(split_file):
+            raise FileNotFoundError(f'No {split} split file for {aoi} in {root}')
+        self.root = root
+        with open(split_file) as f:
+            self.samples = [line.strip() for line in f if line.strip()]
+        self.mean = torch.tensor(self.MEAN).view(-1, 1, 1)
+        self.std = torch.tensor(self.STD).view(-1, 1, 1)
+        print(f'BRIGHT {aoi} {split}: {len(self.samples)} crops')
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        crop = self.samples[idx]
+
+        with rasterio.open(f'{self.root}/pre-event/{crop}_pre_disaster.tif') as src:
+            pre = src.read()
+        with rasterio.open(f'{self.root}/post-event/{crop}_post_disaster.tif') as src:
+            post = src.read()
+        with rasterio.open(f'{self.root}/target/{crop}_building_damage.tif') as src:
+            label = torch.from_numpy(src.read(1).astype(np.int64))
+
+        # Stack pre and post event images: [4, H, W]
+        image = torch.from_numpy(np.concatenate([pre, post]).astype(np.float32))
+        image = (image - self.mean) / self.std
+        return image, label
+
+
 class GeoBenchBENV2L1C(GeoBenchBENV2):
     """
     BigEarthNet-v2 test split with S2 read from the matching L1C
@@ -776,7 +819,7 @@ class DataManager:
         self.ftw_like = any(k in f"{dataset_pair} {data_pair}".lower()
                             for k in ("ftw", "rpg"))
         # These datasets normalise in their own __getitem__, so the model transforms skip it.
-        self.prenormalized = any(k in dataset_pair for k in ("BenV2", "Sen1Floods11", "ChesapeakeCVPR"))
+        self.prenormalized = any(k in dataset_pair for k in ("BenV2", "Sen1Floods11", "ChesapeakeCVPR", "BRIGHT"))
         self.transform = transform
         self.mask = mask
         self.imagenet_mean = [0.485, 0.456, 0.406]
@@ -877,6 +920,10 @@ class DataManager:
                 sensor = self.config_task['finetune' if finetune_state == 'in' else 'test']
                 dataset = ChesapeakeCVPRDataset(root=self.root_dir + '/' + 'cvpr_chesapeake_landcover',
                                                 sensor=sensor, split=split)
+            case _ if self.dataset_pair.startswith("BRIGHT"):
+                aoi = self.config_task['finetune' if finetune_state == 'in' else 'test']
+                dataset = BRIGHTDataset(root=self.root_dir + '/' + 'BRIGHT/crops_256/' + self.config_task['crop_dir'],
+                                        aoi=aoi, split=split)
             case "BenV2-L2A-L1C":
                 s2_bands = ['B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B11', 'B12']
                 if finetune_state == "in":

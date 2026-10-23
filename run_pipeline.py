@@ -97,10 +97,15 @@ if __name__ == '__main__':
     # Instantiate ModelManager
     modelmanager = ModelManager(model_name=model_type, task=task, num_classes=len(config_task['finetune_classes']),
                                 img_channels=config_task['img_channels'], wavelength=config_task['finetune_wavelength'],
-                                device=device)
+                                device=device, fusion=config_task.get('fusion'),
+                                post_channels=config_task.get('post_channels', 1),
+                                post_wavelength=config_task.get('post_wavelength'))
 
     # Load model
     model = modelmanager.get_model()
+
+    # Wrap model for pre and post event inputs if needed
+    model = modelmanager.add_fusion(model)
 
     # Get waves if needed for model - may be different if doing sensor shift experiment
     train_waves = modelmanager.get_waves(config_task['finetune_wavelength'])

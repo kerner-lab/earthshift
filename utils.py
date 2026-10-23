@@ -156,27 +156,35 @@ class FeatureHolder(nn.Module):
 
 
 class SiameseLateFusion(nn.Module):
-    def __init__(self, seg_model, num_classes, pre_channels=3, post_channels=1):
+    def __init__(self, seg_model, num_classes, pre_channels=3, post_channels=1, pre_waves=None, post_waves=None):
         """
         Siamese late fusion wrapper for pre and post event semseg tasks (e.g. BRIGHT pre event optical,
         post event SAR). The same backbone is used for both images, features are concatenated and decoded.
         Expects the pre and post event images stacked on the channel dim [B, pre_channels + post_channels, H, W]
-        :param seg_model: segmentation wrapper set up for pre_channels, with a SimpleDecoder as decoder
+        :param seg_model: segmentation wrapper set up for pre_channels, with a SimpleDecoder as decoder or decode_head
         :param num_classes: Number of segmentation classes
         :param pre_channels: Number of channels in the pre event image
         :param post_channels: Number of channels in the post event image
+        :param pre_waves: Wavelengths for the pre event image, only for models that take wavelengths (DOFA, Clay)
+        :param post_waves: Wavelengths for the post event image, only for models that take wavelengths (DOFA, Clay).
+        If given, the post event image is passed as is instead of repeated to pre_channels
         """
         super().__init__()
         self.pre_channels = pre_channels
         self.post_channels = post_channels
         self.num_classes = num_classes
+        self.pre_waves = pre_waves
+        self.post_waves = post_waves
+
+        # Wrappers name their decoder either decoder or decode_head
+        decoder_name = 'decoder' if hasattr(seg_model, 'decoder') else 'decode_head'
 
         # Get number of feature channels going into the wrapper decoder
-        feat_channels = seg_model.decoder.decode[0].in_channels
+        feat_channels = getattr(seg_model, decoder_name).decode[0].in_channels
 
         # Swap decoder for feature holder so the wrapper returns backbone features
         self.feature_holder = FeatureHolder()
-        seg_model.decoder = self.feature_holder
+        setattr(seg_model, decoder_name, self.feature_holder)
         self.encoder = seg_model
 
         # Decoder head on the concatenated pre and post event features
@@ -191,6 +199,17 @@ class SiameseLateFusion(nn.Module):
         self.encoder(x, *args)
         return self.feature_holder.features
 
+    def set_waves(self, waves):
+        """
+        Set wavelengths on the wrapper before a forward pass, DOFA stores them in waves and Clay in _waves_list
+        :param waves: Wavelengths for the next image
+        :return:
+        """
+        if hasattr(self.encoder, '_waves_list'):
+            self.encoder._waves_list = list(waves)
+        else:
+            self.encoder.waves = waves
+
     def forward(self, x, *args):
         """
         Run forward pass for semseg tasks
@@ -203,13 +222,20 @@ class SiameseLateFusion(nn.Module):
         pre = x[:, :self.pre_channels]
         post = x[:, self.pre_channels:]
 
-        # Repeat single channel post event image to match pre event channels
-        if self.post_channels == 1:
-            post = post.expand(-1, self.pre_channels, -1, -1)
+        if self.post_waves is None:
+            # Repeat single channel post event image to match pre event channels
+            if self.post_channels == 1:
+                post = post.expand(-1, self.pre_channels, -1, -1)
 
-        # Get features for both images from the same backbone
-        pre_features = self.encode(pre, *args)
-        post_features = self.encode(post, *args)
+            # Get features for both images from the same backbone
+            pre_features = self.encode(pre, *args)
+            post_features = self.encode(post, *args)
+        else:
+            # Models that take wavelengths get each image as is, with its own wavelengths
+            self.set_waves(self.pre_waves)
+            pre_features = self.encode(pre, *args)
+            self.set_waves(self.post_waves)
+            post_features = self.encode(post, *args)
 
         # Decode concatenated features to seg map
         logits = self.head(torch.cat([pre_features, post_features], dim=1))

@@ -51,6 +51,20 @@
           "finetune_wavelength": "rgbn",
           "test_wavelength": "rgbn",
           "filter": false
+        },
+        "BRIGHT-turkey-morocco": {
+          "finetune": "turkey-earthquake",
+          "finetune_classes": [0, 1, 2, 3],
+          "test": "morocco-earthquake",
+          "test_classes": [0, 1, 2, 3],
+          "img_channels": 3,
+          "post_channels": 1,
+          "fusion": "siamese",
+          "crop_dir": "turkey-morocco-cropmatch",
+          "finetune_wavelength": "rgb",
+          "test_wavelength": "rgb",
+          "post_wavelength": "sar",
+          "filter": false
         }
       },
       "models": ["DOFA", "CROMA", "resnet18", "resnet50", "resnet152", "dinov3_large_sat", "Clay", "terrafm", "olmo-earth", "galileo"]

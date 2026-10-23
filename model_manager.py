@@ -38,13 +38,17 @@ class ModelManager:
     Model Manager class to load pre-trained models and manage specific details
     """
 
-    def __init__(self, model_name, task, num_classes, img_channels, wavelength, device):
+    def __init__(self, model_name, task, num_classes, img_channels, wavelength, device, fusion=None, post_channels=1,
+                 post_wavelength=None):
         self.model_name = model_name
         self.task = task
         self.num_classes = num_classes
         self.img_channels = img_channels
         self.wavelength = wavelength
         self.device = device
+        self.fusion = fusion
+        self.post_channels = post_channels
+        self.post_wavelength = post_wavelength
 
         if not model_name:
             raise ValueError("model_name cannot be empty")
@@ -71,7 +75,8 @@ class ModelManager:
             're1e2': [0.705, 0.740, 0.783],
             's2': [0.49, 0.56, 0.665, 0.704, 0.74, 0.783, 0.842, 0.865, 1.61, 2.19],
             's2_13': [0.443, 0.49, 0.56, 0.665, 0.704, 0.74, 0.783, 0.842, 0.865, 0.945, 1.375, 1.61, 2.19],
-            's1': [55465.7, 55465.7]
+            's1': [55465.7, 55465.7],
+            'sar': [55465.7]  # single band SAR (e.g. BRIGHT), same wavelength as s1
         }
 
         wave = wavelength if wavelength is not None else self.wavelength
@@ -182,6 +187,23 @@ class ModelManager:
                     return TimmVITSegmentation(model, self.img_channels, num_classes=self.num_classes)
             case _:
                 return 'Invalid model query'
+
+
+    def add_fusion(self, model):
+        """
+        Wrap model for pre and post event inputs if fusion is set in the config
+        :param model: segmentation model from get_model
+        :return:
+        """
+        if self.fusion == 'siamese':
+            # DOFA and Clay take wavelengths, so the post event image gets its own
+            pre_waves, post_waves = None, None
+            if self.post_wavelength is not None and self.model_name in ('dofa', 'clay'):
+                pre_waves = self.get_waves()
+                post_waves = self.get_waves(self.post_wavelength)
+            return SiameseLateFusion(model, self.num_classes, pre_channels=self.img_channels,
+                                     post_channels=self.post_channels, pre_waves=pre_waves, post_waves=post_waves)
+        return model
 
 
     def get_model(self):

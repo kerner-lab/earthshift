@@ -2,6 +2,7 @@
 Utils for different model needs
 """
 import torch.nn as nn
+import torch.nn.functional as F
 import torch
 import numpy as np
 import random
@@ -138,6 +139,90 @@ def dual_sensor_adapter(expected_channels, rgb_channels=3, s1_channels=2):
         's1': channel_adapter(expected_channels, s1_channels),
         's2': channel_adapter(expected_channels, rgb_channels)
     })
+
+
+class FeatureHolder(nn.Module):
+    """
+    Replaces the decoder of a segmentation wrapper so the backbone features can be
+    grabbed. Saves the features and returns one channel so the wrapper forward pass still runs
+    """
+    def __init__(self):
+        super().__init__()
+        self.features = None
+
+    def forward(self, x):
+        self.features = x
+        return x[:, :1]
+
+
+class SiameseLateFusion(nn.Module):
+    def __init__(self, seg_model, num_classes, pre_channels=3, post_channels=1):
+        """
+        Siamese late fusion wrapper for pre and post event semseg tasks (e.g. BRIGHT pre event optical,
+        post event SAR). The same backbone is used for both images, features are concatenated and decoded.
+        Expects the pre and post event images stacked on the channel dim [B, pre_channels + post_channels, H, W]
+        :param seg_model: segmentation wrapper set up for pre_channels, with a SimpleDecoder as decoder
+        :param num_classes: Number of segmentation classes
+        :param pre_channels: Number of channels in the pre event image
+        :param post_channels: Number of channels in the post event image
+        """
+        super().__init__()
+        self.pre_channels = pre_channels
+        self.post_channels = post_channels
+        self.num_classes = num_classes
+
+        # Get number of feature channels going into the wrapper decoder
+        feat_channels = seg_model.decoder.decode[0].in_channels
+
+        # Swap decoder for feature holder so the wrapper returns backbone features
+        self.feature_holder = FeatureHolder()
+        seg_model.decoder = self.feature_holder
+        self.encoder = seg_model
+
+        # Decoder head on the concatenated pre and post event features
+        self.head = SimpleDecoder(2 * feat_channels, nc=num_classes)
+
+    def encode(self, x, *args):
+        """
+        Get backbone features for one image
+        :param x: Input tensor [B, pre_channels, H, W]
+        :return: Feature map from the backbone
+        """
+        self.encoder(x, *args)
+        return self.feature_holder.features
+
+    def forward(self, x, *args):
+        """
+        Run forward pass for semseg tasks
+        :param x: Input tensor [B, pre_channels + post_channels, H, W]
+        :return: Segmentation logits [B, num_classes, H, W]
+        """
+        B, C, H, W = x.shape
+
+        # Split into pre and post event images
+        pre = x[:, :self.pre_channels]
+        post = x[:, self.pre_channels:]
+
+        # Repeat single channel post event image to match pre event channels
+        if self.post_channels == 1:
+            post = post.expand(-1, self.pre_channels, -1, -1)
+
+        # Get features for both images from the same backbone
+        pre_features = self.encode(pre, *args)
+        post_features = self.encode(post, *args)
+
+        # Decode concatenated features to seg map
+        logits = self.head(torch.cat([pre_features, post_features], dim=1))
+
+        # Upsample
+        logits = F.interpolate(
+            logits,
+            size=(H, W),
+            mode='bilinear',
+            align_corners=False
+        )
+
+        return logits
 
 
 def set_seed(seed):

@@ -423,6 +423,12 @@ def finetune(model,
                     p.requires_grad = True
         except AttributeError as e:
             print('continuing')
+        # Channel adapters map dataset bands to the backbone's expected bands and are randomly initialised,
+        # so keep them trainable too
+        for name, module in model.named_modules():
+            if name.endswith(("channel_adapter", "input_adapter")):
+                for p in module.parameters():
+                    p.requires_grad = True
 
     elif finetune == "full":
         for p in model.parameters():

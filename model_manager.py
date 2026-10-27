@@ -75,6 +75,7 @@ class ModelManager:
             're1e2': [0.705, 0.740, 0.783],
             's2': [0.49, 0.56, 0.665, 0.704, 0.74, 0.783, 0.842, 0.865, 1.61, 2.19],
             's2_13': [0.443, 0.49, 0.56, 0.665, 0.704, 0.74, 0.783, 0.842, 0.865, 0.945, 1.375, 1.61, 2.19],
+            's2_12': [0.443, 0.49, 0.56, 0.665, 0.704, 0.74, 0.783, 0.842, 0.865, 0.945, 1.61, 2.19],  # s2_13 without B10
             's1': [55465.7, 55465.7],
             'sar': [55465.7]  # single band SAR (e.g. BRIGHT), same wavelength as s1
         }
@@ -317,6 +318,9 @@ class ModelManager:
                 elif self.wavelength == 's2_13':
                     modalities = ['S2L2A']
                     bands = {'S2L2A': ['COASTAL_AEROSOL', 'BLUE', 'GREEN', 'RED', 'RED_EDGE_1', 'RED_EDGE_2', 'RED_EDGE_3', 'NIR_BROAD', 'NIR_NARROW', 'WATER_VAPOR', 'CIRRUS', 'SWIR_1', 'SWIR_2']}
+                elif self.wavelength == 's2_12':
+                    modalities = ['S2L2A']
+                    bands = {'S2L2A': ['COASTAL_AEROSOL', 'BLUE', 'GREEN', 'RED', 'RED_EDGE_1', 'RED_EDGE_2', 'RED_EDGE_3', 'NIR_BROAD', 'NIR_NARROW', 'WATER_VAPOR', 'SWIR_1', 'SWIR_2']}
                 elif self.wavelength == 's1':
                     modalities = ['S1GRD']
                     bands = {'S1GRD': ['VV', 'VH']}

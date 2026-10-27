@@ -7,6 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from torchgeo.datasets import RESISC45, UCMerced, NLCD
 from geobench_v2.datasets.benv2 import GeoBenchBENV2
+from geobench_v2.datasets.cloudsen12 import GeoBenchCloudSen12
 import os
 import glob
 import rasterio
@@ -24,6 +25,7 @@ import csv
 import collections
 from pathlib import Path
 import numpy as np
+import xarray as xr
 
 
 class GeospatialDataset(Dataset):
@@ -311,6 +313,60 @@ class FTWDataset(Dataset):
 
         # Convert to tensors
         image = torch.from_numpy(image).float().permute(2, 0, 1)
+        label = torch.from_numpy(label).long()
+
+        return image, label
+
+
+class AI4BoundariesDataset(Dataset):
+    """
+    Class for loading AI4Boundaries Sentinel-2 test samples of one country in the same format as FTWDataset.
+    Images are monthly composites (Mar-Aug 2019); the months that fall in the FTW France windows are used
+    (window_a: May, window_b: August). Masks are converted to the FTW 3 class labels.
+    """
+    def __init__(self, root, split, country='FR'):
+        self.root = root
+        self.split = split
+        if split != 'test':
+            raise FileNotFoundError("AI4Boundaries is only used for the test split")
+
+        # R, G, B, NIR to match the FTW band order (B04, B03, B02, B08)
+        self.bands = ['B4', 'B3', 'B2', 'B8']
+        self.windows = {'a': '2019-05-01', 'b': '2019-08-01'}
+
+        self.image_dir = '{}/{}/{}'.format(self.root, split, split)
+        self.mask_dir = '{}/masks/{}'.format(self.root, split)
+
+        # Only keep samples where both the image and mask exist
+        names = [os.path.basename(f)[:-len('.nc')] for f in sorted(glob.glob(f'{self.image_dir}/{country}_*.nc'))]
+        names = [n for n in names if os.path.exists(f'{self.mask_dir}/{n}.tif')]
+        self.samples = [(n, window) for n in names for window in self.windows]
+
+        print(f"Country: {country}, Split: {self.split}, Total samples: {len(self.samples)}")
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, index):
+        name, window = self.samples[index]
+
+        # Load image for the month of this window
+        with xr.open_dataset(f'{self.image_dir}/{name}.nc') as ds:
+            ds = ds.sel(time=self.windows[window])
+            image = np.stack([ds[b].values for b in self.bands]).astype(np.float32)
+
+        # Mask bands are extent, boundary, distance, enumeration
+        with rasterio.open(f'{self.mask_dir}/{name}.tif') as src:
+            extent = src.read(1)
+            boundary = src.read(2)
+
+        # FTW 3 class labels: 0 background, 1 field, 2 boundary
+        label = np.zeros(extent.shape, dtype=np.int64)
+        label[extent == 1] = 1
+        label[boundary == 1] = 2
+
+        # Scale to 0-1 range like FTWDataset
+        image = torch.from_numpy(image / 10000.0).float()
         label = torch.from_numpy(label).long()
 
         return image, label
@@ -780,6 +836,55 @@ class GeoBenchBENV2L1C(GeoBenchBENV2):
         return sample
 
 
+class CloudSen12Dataset(GeoBenchCloudSen12):
+    """
+    CloudSEN12 cloud and cloud shadow segmentation from GEO-Bench-2. Reads L2A from the
+    GEO-Bench tortilla, or L1C for the same test samples from the chips built by
+    processing-shift/cloudsen12-l1c.py (same footprint and target).
+    Both are normalised with the GEO-Bench L2A stats so the L1C shift is kept.
+    GEO-Bench's own __getitem__ returns the image before normalisation, so it is redone here.
+    The 509x509 samples are padded to 512, the padded border is set to 255 (ignore).
+    Labels: 0 clear, 1 thick cloud, 2 thin cloud, 3 cloud shadow
+    """
+
+    def __init__(self, root, split, band_order, l1c_root=None, **kwargs):
+        super().__init__(root=root, split=split, band_order=band_order, **kwargs)
+        self.l1c_root = l1c_root
+
+        if l1c_root is not None:
+            if self.split != 'test':
+                raise FileNotFoundError("CloudSEN12 L1C chips only exist for the test split")
+            with open(os.path.join(l1c_root, 'chips.csv'), newline='') as f:
+                ok = {r['tortilla_id'] for r in csv.DictReader(f) if r['status'] == 'ok'}
+            n_all = len(self.data_df)
+            self.data_df = self.data_df[self.data_df['tortilla:id'].isin(ok)].reset_index(drop=True)
+            if len(self.data_df) != n_all:
+                print(f'WARNING: {n_all - len(self.data_df)} CloudSEN12 test samples have no L1C chip; '
+                      'the ID test set should be restricted to the same samples')
+
+    def __getitem__(self, idx):
+        sample_row = self.data_df.read(idx)
+        meta = self.data_df.iloc[idx]
+
+        if self.l1c_root is None:
+            image_path = sample_row.read(0)
+        else:
+            image_path = os.path.join(self.l1c_root, 'S2', f"{meta['tortilla:id']}.tif")
+        with rasterio.open(image_path) as src:
+            image = torch.from_numpy(src.read(out_dtype='float32'))
+        with rasterio.open(sample_row.read(1)) as src:
+            label = torch.from_numpy(src.read(1)).long()
+
+        # Set padded border to ignore
+        size = int(meta['real_proj_shape'])
+        label[size:, :] = 255
+        label[:, size:] = 255
+
+        sample = self.data_normalizer(self.rearrange_bands(image, self.band_order))
+        sample['label'] = label
+        return sample
+
+
 def ucmerced_split_size(root_dir, split, keep_classes):
     """
     Number of UCMerced samples in `split`, restricted to `keep_classes`.
@@ -819,7 +924,8 @@ class DataManager:
         self.ftw_like = any(k in f"{dataset_pair} {data_pair}".lower()
                             for k in ("ftw", "rpg"))
         # These datasets normalise in their own __getitem__, so the model transforms skip it.
-        self.prenormalized = any(k in dataset_pair for k in ("BenV2", "Sen1Floods11", "ChesapeakeCVPR", "BRIGHT"))
+        self.prenormalized = any(k in dataset_pair for k in ("BenV2", "Sen1Floods11", "ChesapeakeCVPR", "BRIGHT",
+                                                             "CloudSen12"))
         self.transform = transform
         self.mask = mask
         self.imagenet_mean = [0.485, 0.456, 0.406]
@@ -893,6 +999,14 @@ class DataManager:
                     finetune_state=finetune_state,
                     debug=os.environ.get('FTW_DEBUG', '0') == '1',
                 )
+            case "ftw-france-ai4boundaries":
+                if finetune_state == "in":
+                    dataset = FTWDataset(config_task=self.config_task, data_pair=self.data_pair,
+                                         data_dir=self.root_dir + '/' + 'ftw', split=split,
+                                         finetune_state=finetune_state)
+                elif finetune_state == "out":
+                    dataset = AI4BoundariesDataset(root=self.root_dir + '/' + 'AI4Boundaries', split=split,
+                                                   country='FR')
             case _ if "rpg" in self.dataset_pair.lower():
                 # Same loader as FTW: the RPG year directory (2017 / 2022) takes the
                 # slot FTW uses for the country, and the layout below it is identical.
@@ -935,6 +1049,16 @@ class DataManager:
                     dataset = GeoBenchBENV2L1C(root=self.root_dir + '/' + 'benv2',
                                                l1c_root=self.root_dir + '/' + 'benv2_l1c',
                                                band_order={'s2': s2_bands})
+            case "CloudSen12-L2A-L1C":
+                s2_bands = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B11', 'B12']
+                if finetune_state == "in":
+                    dataset = CloudSen12Dataset(root=self.root_dir + '/' + 'cloudsen12', split=split,
+                                                band_order=s2_bands)
+                elif finetune_state == "out":
+                    if split != 'test':
+                        raise FileNotFoundError("CloudSEN12 L1C chips only exist for the test split")
+                    dataset = CloudSen12Dataset(root=self.root_dir + '/' + 'cloudsen12', split=split,
+                                                band_order=s2_bands, l1c_root=self.root_dir + '/' + 'cloudsen12_l1c')
             case _:
                 raise ValueError("Invalid dataset pair")
 

@@ -67,26 +67,32 @@ class ModelManager:
         # ["B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A", "B11", "B12"]
         # ["VV", "VH"]
 
+        # SAR has no single wavelength the models were trained with, so s1/sar use the values each model
+        # was pretrained with (DOFA: 3.75, Clay: vv 3.5, vh 4.0) instead of the physical C-band wavelength
         wave_dict = {
             'rgb': [0.665, 0.56, 0.49],
-            'rgbn': [0.665, 0.56, 0.49, 0.865],
+            'rgbn': [0.665, 0.56, 0.49, 0.842],  # S2 B08 / NAIP NIR (FTW, RPG, AI4Boundaries, Chesapeake NAIP)
+            'rgbn_landsat': [0.665, 0.56, 0.49, 0.865],  # Landsat 8 B5 NIR (Chesapeake Landsat)
             'ns1s2': [0.865, 1.610, 2.190],
             'rge1': [0.665, 0.560, 0.705],
             're1e2': [0.705, 0.740, 0.783],
             's2': [0.49, 0.56, 0.665, 0.704, 0.74, 0.783, 0.842, 0.865, 1.61, 2.19],
             's2_13': [0.443, 0.49, 0.56, 0.665, 0.704, 0.74, 0.783, 0.842, 0.865, 0.945, 1.375, 1.61, 2.19],
             's2_12': [0.443, 0.49, 0.56, 0.665, 0.704, 0.74, 0.783, 0.842, 0.865, 0.945, 1.61, 2.19],  # s2_13 without B10
-            's1': [55465.7, 55465.7],
-            'sar': [55465.7]  # single band SAR (e.g. BRIGHT), same wavelength as s1
+            's1': {'dofa': [3.75, 3.75], 'clay': [3.5, 4.0]},  # VV, VH
+            'sar': {'dofa': [3.75], 'clay': [3.5]}  # single band SAR (e.g. BRIGHT), as VV
         }
 
         wave = wavelength if wavelength is not None else self.wavelength
+        waves = wave_dict[wave]
+        if isinstance(waves, dict):
+            waves = waves.get(self.model_name)
 
         match self.model_name:
             case "dofa":
-                return torch.tensor(wave_dict[wave], dtype=torch.float32).to(self.device)
+                return torch.tensor(waves, dtype=torch.float32).to(self.device)
             case "clay":
-                return wave_dict[wave]
+                return waves
             case "dinov3_small" | "resnet18" | "resnet50" | "resnet152"| "CROMA" | "resnet18_imgnet" | \
                  "resnet50_imgnet" | "resnet152_imgnet" | "dinov3_large_sat":
                 return None

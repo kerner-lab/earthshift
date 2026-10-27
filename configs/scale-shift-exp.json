@@ -52,7 +52,7 @@
           "test": "NAIP",
           "test_classes": ["water", "tree_canopy", "low_vegetation", "impervious_barren"],
           "img_channels": 4,
-          "finetune_wavelength": "rgbn",
+          "finetune_wavelength": "rgbn_landsat",
           "test_wavelength": "rgbn",
           "filter": false
         },
@@ -63,7 +63,7 @@
           "test_classes": ["water", "tree_canopy", "low_vegetation", "impervious_barren"],
           "img_channels": 4,
           "finetune_wavelength": "rgbn",
-          "test_wavelength": "rgbn",
+          "test_wavelength": "rgbn_landsat",
           "filter": false
         }
       },

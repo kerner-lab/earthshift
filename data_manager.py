@@ -342,6 +342,10 @@ class AI4BoundariesDataset(Dataset):
         names = [n for n in names if os.path.exists(f'{self.mask_dir}/{n}.tif')]
         self.samples = [(n, window) for n in names for window in self.windows]
 
+        # Read one sample here so a missing netcdf backend fails before finetuning instead of at test time
+        if self.samples:
+            self[0]
+
         print(f"Country: {country}, Split: {self.split}, Total samples: {len(self.samples)}")
 
     def __len__(self):
@@ -351,7 +355,7 @@ class AI4BoundariesDataset(Dataset):
         name, window = self.samples[index]
 
         # Load image for the month of this window
-        with xr.open_dataset(f'{self.image_dir}/{name}.nc') as ds:
+        with xr.open_dataset(f'{self.image_dir}/{name}.nc', engine='h5netcdf') as ds:
             ds = ds.sel(time=self.windows[window])
             image = np.stack([ds[b].values for b in self.bands]).astype(np.float32)
 

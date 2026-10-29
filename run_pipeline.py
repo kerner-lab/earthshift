@@ -256,4 +256,4 @@ if __name__ == '__main__':
         print('Running Test set...')
         predict(model, model_type, test_dataset, finetune_dataset_test, task, save_dir, experiment,
                 batch_size=batch_size, waves=test_waves, num_classes=len(config_task['test_classes']),
-                dataset_pair=data_pair)
+                dataset_pair=data_pair, in_waves=train_waves)

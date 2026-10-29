@@ -19,8 +19,12 @@ class DOFASegmentation(nn.Module):
         # Grid size for reshaping - harcoding
         self.grid_size = (14, 14)
 
-    def get_tokens(self, x):
+    def get_tokens(self, x, waves=None):
         tokens = {}
+
+        # Use the wavelengths passed in (e.g. OOD test set), otherwise the ones set at init
+        if waves is None:
+            waves = self.waves
 
         def hook_fn(module, inp, out):
             tokens["x"] = out
@@ -28,7 +32,7 @@ class DOFASegmentation(nn.Module):
         h = self.backbone_model.blocks[-1].register_forward_hook(hook_fn)       # Get tokens from last transformer block which contains most semantic patch embeddings
 
         try:
-            _ = self.backbone_model(x, self.waves)  # classification forward, but hook grabs tokens
+            _ = self.backbone_model(x, waves)  # classification forward, but hook grabs tokens
         finally:
             h.remove()
 
@@ -37,8 +41,8 @@ class DOFASegmentation(nn.Module):
         return tokens["x"]
 
 
-    def forward(self, x, waves):
-        tok = self.get_tokens(x)  # [B, N, D]
+    def forward(self, x, waves=None):
+        tok = self.get_tokens(x, waves)  # [B, N, D]
 
         # Drop CLS token if present
         if tok.dim() != 3:

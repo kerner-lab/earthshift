@@ -148,8 +148,14 @@ def predict(model,
             batch_size: int,
             waves=None,
             num_classes=None,
-            dataset_pair=None
+            dataset_pair=None,
+            in_waves=None
             ):
+    """
+    waves are used for the OOD test set and in_waves for the ID test set, in_waves defaults to waves
+    """
+    if in_waves is None:
+        in_waves = waves
 
     # Load the test dataset from the out of distribution set
     if test_dataset is not None:
@@ -210,7 +216,7 @@ def predict(model,
         if in_test_dl is not None:
             if multi_label:
                 in_metrics = classification_inference(model, model_name, in_test_dl, save_dir, wandb_exp, device,
-                                                      class_criterion, waves, multi_label=True)
+                                                      class_criterion, in_waves, multi_label=True)
                 print(f"ID Test set - Acc: {in_metrics['acc']:.4f} (inflated), "
                       f"F1-micro: {in_metrics['f1_micro']:.4f}, F1-macro: {in_metrics['f1_macro']:.4f}")
 
@@ -224,7 +230,7 @@ def predict(model,
                 })
             else:
                 in_loss, in_acc = classification_inference(model, model_name, in_test_dl, save_dir, wandb_exp, device,
-                                                           class_criterion, waves, multi_label=False)
+                                                           class_criterion, in_waves, multi_label=False)
                 print(f'ID Test set accuracy: {in_acc:.4f}')
                 wandb_exp.log({
                     'test loss ID': in_loss,
@@ -242,7 +248,7 @@ def predict(model,
 
         if in_test_dl is not None:
             in_loss, in_miou = segmentation_inference(model, model_name, in_test_dl, wandb_exp, device,
-                                                      semseg_criterion, waves, num_classes)
+                                                      semseg_criterion, in_waves, num_classes)
             print('ID Test set miou: {}'.format(in_miou))
 
         wandb_exp.log({

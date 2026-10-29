@@ -911,6 +911,14 @@ def ucmerced_split_size(root_dir, split, keep_classes):
     return n
 
 
+def scale_s2(x):
+    """
+    Scale S2 digital numbers to reflectance. Defined at module level (not a lambda) so DataLoader
+    workers can pickle the transform on platforms that spawn workers (e.g. macOS)
+    """
+    return x / 10000.0
+
+
 class DataManager:
     """
     Data Manager class
@@ -1077,8 +1085,8 @@ class DataManager:
         match self.model_name:
             case "croma":
                 t.append(transforms.Resize((120, 120)))
-                if "EuroSat" in self.dataset_pair.lower():
-                    t.append(transforms.Lambda(lambda x: x / 10000.0))
+                if "eurosat" in self.dataset_pair.lower():
+                    t.append(transforms.Lambda(scale_s2))
                     t.append(transforms.Normalize(
                         mean=self.s2_mean ,
                         std=self.s2_std))
@@ -1094,8 +1102,8 @@ class DataManager:
                 return transforms.Compose(t)
             case 'clay':
                 t.append(transforms.Resize((256, 256)))
-                if "EuroSat" in self.dataset_pair.lower():
-                    t.append(transforms.Lambda(lambda x: x / 10000.0))
+                if "eurosat" in self.dataset_pair.lower():
+                    t.append(transforms.Lambda(scale_s2))
                     t.append(transforms.Normalize(
                         mean=self.s2_mean,
                         std=self.s2_std))
@@ -1111,8 +1119,8 @@ class DataManager:
                 return transforms.Compose(t)
             case "terrafm" | "prithvi" | "olmo-earth" | "terramind" | "dofa" | "galileo":
                 t.append(transforms.Resize((224, 224)))
-                if "EuroSat" in self.dataset_pair.lower():
-                    t.append(transforms.Lambda(lambda x: x / 10000.0))
+                if "eurosat" in self.dataset_pair.lower():
+                    t.append(transforms.Lambda(scale_s2))
                     t.append(transforms.Normalize(
                         mean=self.s2_mean,
                         std=self.s2_std))
@@ -1139,8 +1147,8 @@ class DataManager:
                         mean=self.ftw_mean,
                         std=self.ftw_std,
                     ))
-                elif "EuroSat" in self.dataset_pair.lower():
-                    t.append(transforms.Lambda(lambda x: x / 10000.0))
+                elif "eurosat" in self.dataset_pair.lower():
+                    t.append(transforms.Lambda(scale_s2))
                     t.append(transforms.Normalize(
                         mean=self.s2_mean,
                         std=self.s2_std))

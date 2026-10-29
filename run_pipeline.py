@@ -252,8 +252,8 @@ if __name__ == '__main__':
         run_s2_to_s1_sensor_shift(model, model_type, test_dataset, finetune_dataset_test, task, save_dir, experiment,
                                    batch_size, config_task, train_waves, device, data_pair)
     else:
-        # Now run on test set
+        # Now run on test set, the finetuned model keeps its finetuning wavelengths for both the ID and OOD test sets
         print('Running Test set...')
         predict(model, model_type, test_dataset, finetune_dataset_test, task, save_dir, experiment,
-                batch_size=batch_size, waves=test_waves, num_classes=len(config_task['test_classes']),
-                dataset_pair=data_pair, in_waves=train_waves)
+                batch_size=batch_size, waves=train_waves, num_classes=len(config_task['test_classes']),
+                dataset_pair=data_pair)

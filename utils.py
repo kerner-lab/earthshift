@@ -231,12 +231,11 @@ class SiameseLateFusion(nn.Module):
             pre_features = self.encode(pre, *args)
             post_features = self.encode(post, *args)
         else:
-            # Models that take wavelengths get each image as is, with its own wavelengths. The wavelengths
-            # passed in are not forwarded as they would override the ones set here
+            # Models that take wavelengths get each image as is, with its own wavelengths
             self.set_waves(self.pre_waves)
-            pre_features = self.encode(pre)
+            pre_features = self.encode(pre, *args)
             self.set_waves(self.post_waves)
-            post_features = self.encode(post)
+            post_features = self.encode(post, *args)
 
         # Decode concatenated features to seg map
         logits = self.head(torch.cat([pre_features, post_features], dim=1))

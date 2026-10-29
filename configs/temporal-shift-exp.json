@@ -74,10 +74,10 @@
         "img_channels":  4,
         "finetune_wavelength":  "rgbn",
         "test_wavelength": "rgbn",
-        "filter":  false},
+        "filter":  false}
+      },
       "models": ["DOFA", "CROMA", "resnet18", "resnet50", "resnet152", "dinov3_large_sat", "Clay", "terrafm",
         "olmo-earth", "galileo"]
     }
   }
-}
 }

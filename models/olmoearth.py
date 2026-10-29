@@ -1,73 +1,83 @@
 """
 Wrapper classes for olmo-earth finetuning
 """
-from torch import nn
 from utils import *
-from rslearn.train.model_context import ModelContext
+import torch
+from torch import nn
+import torch.nn.functional as F
+from olmoearth_pretrain_minimal import NormalizerV1_3
+from olmoearth_pretrain_minimal.olmoearth_pretrain_v1.utils.constants import Modality
+from olmoearth_pretrain_minimal.olmoearth_pretrain_v1.utils.datatypes import MaskedOlmoEarthSample
+
+
+class OlmoEarthEncoder(nn.Module):
+    def __init__(self, encoder, bands, raw_s2=False, patch_size=8, input_res=10):
+        """
+        Build OlmoEarth input from [B, C, H, W] image and return
+        [B, 768, H/p, W/p] features
+        """
+        super().__init__()
+        self.encoder = encoder
+        self.bands = bands
+        self.raw_s2 = raw_s2
+        self.patch_size = patch_size
+        self.input_res = input_res
+        self.stats = NormalizerV1_3().norm_config
+
+    def forward(self, x, bands=None):
+        modality, names = bands if bands is not None else self.bands
+        order = Modality.get(modality).band_order
+        # Drop input bands OlmoEarth does not take and find location of each remaining band
+        keep = [i for i, b in enumerate(names) if b in order]
+        idx = [order.index(names[i]) for i in keep]
+        x = x[:, keep].permute(0, 2, 3, 1)  # [B, H, W, C]
+        B, H, W, _ = x.shape
+
+        if self.raw_s2 and modality == 'sentinel2_l2a':
+            # OlmoEarth normalisation: (x - (mean - 2 std)) / (4 std)
+            mean = x.new_tensor([self.stats[modality][order[i]]['mean'] for i in idx])
+            std = x.new_tensor([self.stats[modality][order[i]]['std'] for i in idx])
+            x = (x * 10000.0 - (mean - 2 * std)) / (4 * std)
+        else:
+            x = (x + 2) / 4
+
+        data = x.new_zeros(B, H, W, len(order))
+        data[..., idx] = x
+        data = data.unsqueeze(3)  # one timestep: [B, H, W, 1, bands]
+
+        n_groups = self.encoder.patch_embeddings.tokenization_config.get_num_bandsets(modality)
+        mask = torch.zeros(B, H, W, 1, n_groups, dtype=torch.long, device=x.device)  # all visible
+        timestamps = torch.zeros(B, 1, 3, dtype=torch.long, device=x.device)
+        timestamps[..., 0], timestamps[..., 1], timestamps[..., 2] = 1, 5, 2020  # day, month (0 index), year
+
+        sample = MaskedOlmoEarthSample(timestamps=timestamps, **{modality: data, f'{modality}_mask': mask})
+        out = self.encoder(sample, patch_size=self.patch_size, input_res=self.input_res, fast_pass=True)
+
+        features = out['location_tokens']  # [B, H/p, W/p, 768]
+        return features.permute(0, 3, 1, 2).contiguous()
+
 
 class OlmoEarthClassifier(nn.Module):
-    def __init__(self, backbone: nn.Module, img_channels: int, num_classes: int):
+    def __init__(self, backbone, bands, num_classes, raw_s2=False):
         super().__init__()
-        self.backbone = backbone
-        self.num_classes = num_classes
-        self.img_channels = img_channels
-
-        # Channel adapter if not taking 12-channel input that olmo-earth expects
-        self.channel_adapter = channel_adapter(12, self.img_channels)
-
-        self.embed_dim = 192        # hardcoded for olmoearth tiny
-
-        # Classification head
+        self.backbone = OlmoEarthEncoder(backbone, bands, raw_s2=raw_s2)
+        self.embed_dim = 768
         self.classifier = nn.Linear(self.embed_dim, num_classes)
 
-    def _create_model_context(self, x):
-        """Create ModelContext from tensor"""
-        B, C, H, W = x.shape
-
-        # Adapt channels
-        x = self.channel_adapter(x)  # [B, 12, H, W]
-
-        # Create inputs
-        inputs = {'sentinel2_l2a': x}
-
-        # Create dummy metadata (one per sample)
-        metadatas = [
-            {
-                'time': 0,
-                'bounds': (0, 0, W, H),
-                'crs': None,
-            }
-            for _ in range(B)
-        ]
-
-        # Create ModelContext
-        context = ModelContext(inputs=inputs, metadatas=metadatas)
-
-        return context
+    def forward(self, x, bands=None):
+        features = self.backbone(x, bands)
+        return self.classifier(features.mean(dim=(2, 3)))
 
 
+class OlmoEarthSegmentation(nn.Module):
+  def __init__(self, backbone, bands, num_classes, raw_s2=False):
+      super().__init__()
+      self.backbone = OlmoEarthEncoder(backbone, bands, raw_s2=raw_s2)
+      self.embed_dim = 768
+      self.decoder = SimpleDecoder(in_channels=self.embed_dim, nc=num_classes)
 
-    def forward(self, x):
-        """
-        Forward pass
-        Args:
-            x: Input tensor [B, C, H, W]
-        Returns:
-            Class logits [B, num_classes]
-        """
-        # Adapt channels
-        x = self.channel_adapter(x)
-
-        # Get features from backbone
-        features = self.backbone(x)
-
-        # Get last layers features
-        features = features[-1]
-
-        # Extract CLS token (first token)
-        cls_token = features[:, 0]
-
-        # Classify
-        logits = self.classifier(cls_token)  # [B, num_classes]
-
-        return logits
+  def forward(self, x, bands=None):
+      B, C, H, W = x.shape
+      features = self.backbone(x, bands)
+      logits = self.decoder(features)
+      return F.interpolate(logits, size=(H, W), mode='bilinear', align_corners=False)

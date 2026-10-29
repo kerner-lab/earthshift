@@ -67,7 +67,8 @@
           "filter": false
         }
       },
-      "models": {}
+      "models": ["DOFA", "CROMA", "resnet18", "resnet50", "resnet152", "dinov3_large_sat", "Clay", "terrafm",
+        "olmo-earth", "galileo"]
     },
     "od": {
       "data-pairs": {"test-pair": "None"},

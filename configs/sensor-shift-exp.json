@@ -50,7 +50,8 @@
           "test_wavelength": "s1",
           "filter": false}
         },
-        "models": ["DOFA", "CROMA", "Clay", "resnet18", "resnet50", "resnet152", "vit_base_patch14_dinov2", "vit_small_patch14_dinov2"]
+        "models": ["DOFA", "CROMA", "resnet18", "resnet50", "resnet152", "dinov3_large_sat", "Clay", "terrafm",
+          "olmo-earth", "galileo"]
       },
     "semseg": {
       "data-pairs": {
@@ -64,7 +65,8 @@
           "test_wavelength": "s1",
           "filter": false}
       },
-      "models": ["DOFA", "CROMA", "Clay", "resnet18", "resnet50", "resnet152", "vit_base_patch14_dinov2", "vit_small_patch14_dinov2"]
+      "models": ["DOFA", "CROMA", "resnet18", "resnet50", "resnet152", "dinov3_large_sat", "Clay", "terrafm",
+        "olmo-earth", "galileo"]
     },
     "od": {
       "data-pairs": {},

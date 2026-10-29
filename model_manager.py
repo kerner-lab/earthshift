@@ -26,7 +26,8 @@ from models.resnet import *
 from models.vits import *
 from models.clip_model import *
 from models.terramind import *
-#from models.olmoearth import *
+from models.olmoearth import *
+from olmoearth_pretrain_minimal import ModelID, load_model_from_id
 from models.galileo_model import *
 from utils import *
 from huggingface_hub import hf_hub_download
@@ -49,6 +50,7 @@ class ModelManager:
         self.fusion = fusion
         self.post_channels = post_channels
         self.post_wavelength = post_wavelength
+        self.raw_s2 = False
 
         if not model_name:
             raise ValueError("model_name cannot be empty")
@@ -98,6 +100,30 @@ class ModelManager:
                 return None
             case _:
                 return None
+
+
+    def get_bands(self, wavelength=None):
+        """
+        Get OlmoEarth modality and band names for the dataset, matching the band order in wave_dict
+        :return: (modality, band names)
+        """
+        band_dict = {
+            'rgb': ('sentinel2_l2a', ['B04', 'B03', 'B02']),
+            'rgbn': ('sentinel2_l2a', ['B04', 'B03', 'B02', 'B08']),
+            'rgbn_landsat': ('landsat', ['B4', 'B3', 'B2', 'B5']),
+            'ns1s2': ('sentinel2_l2a', ['B8A', 'B11', 'B12']),
+            'rge1': ('sentinel2_l2a', ['B04', 'B03', 'B05']),
+            're1e2': ('sentinel2_l2a', ['B05', 'B06', 'B07']),
+            's2': ('sentinel2_l2a', ['B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B11', 'B12']),
+            's2_13': ('sentinel2_l2a', ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B10',
+                                        'B11', 'B12']),  # B10 is dropped in the encoder, OlmoEarth has no B10
+            's2_12': ('sentinel2_l2a', ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09',
+                                        'B11', 'B12']),
+            's1': ('sentinel1', ['vv', 'vh']),
+            'sar': ('sentinel1', ['vv'])
+        }
+        wave = wavelength if wavelength is not None else self.wavelength
+        return band_dict[wave]
 
 
     def modify_model(self, model):
@@ -159,9 +185,11 @@ class ModelManager:
                     return GalileoSegmentation(model, self.img_channels, num_classes=self.num_classes)
             case "olmo-earth":
                 if self.task == 'class':
-                    return OlmoEarthClassifier(model, self.img_channels, num_classes=self.num_classes)
-                else:
-                    return None
+                    return OlmoEarthClassifier(model, self.get_bands(), num_classes=self.num_classes,
+                                               raw_s2=self.raw_s2)
+                elif self.task == 'semseg':
+                    return OlmoEarthSegmentation(model, self.get_bands(), num_classes=self.num_classes,
+                                                 raw_s2=self.raw_s2)
             case "terramind":
                 modality = 'S1GRD' if self.wavelength == 's1' else 'S2L2A'
                 if self.task == 'class':
@@ -296,11 +324,7 @@ class ModelManager:
                 model = BACKBONE_REGISTRY.build("prithvi_eo_v2_300", pretrained=True)
                 return self.modify_model(model)
             case "olmo-earth":
-                # hard coding to use the tiny model for now
-                model = OlmoEarthBase(
-                    model_id=ModelID.OLMOEARTH_V1_TINY,
-                    patch_size=16,
-                )
+                model = load_model_from_id(ModelID.OLMOEARTH_V1_3_BASE, load_weights=True).encoder
                 return self.modify_model(model)
             case "galileo":
                 DATA_FOLDER = Path("galileo/data")

@@ -7,6 +7,8 @@ from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
 from torchmetrics import JaccardIndex
 from sklearn.metrics import f1_score, classification_report
 import numpy as np
+import os
+NUM_WORKERS = max(1, int(os.environ.get("SLURM_CPUS_PER_TASK", 6)) - 2)
 
 
 def build_scheduler(optimizer, warmup_epochs, decay_epochs, steps_per_epoch):
@@ -372,9 +374,9 @@ def finetune(model,
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # --- DataLoaders
-    train_dl = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+    train_dl = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=NUM_WORKERS)
     if val_dataset is not None:
-        val_dl = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+        val_dl = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS)
     else:
         val_dl = None
 

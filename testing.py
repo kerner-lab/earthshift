@@ -8,6 +8,8 @@ from torchmetrics import JaccardIndex
 from sklearn.metrics import f1_score, precision_score, recall_score
 import numpy as np
 from model_manager import ModelManager
+import os
+NUM_WORKERS = max(1, int(os.environ.get("SLURM_CPUS_PER_TASK", 6)) - 2)
 
 
 def classification_inference(model,
@@ -153,13 +155,13 @@ def predict(model,
 
     # Load the test dataset from the out of distribution set
     if test_dataset is not None:
-        out_test_dl = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+        out_test_dl = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS)
     else:
         out_test_dl = None
 
     # Load the test dataset from the in distribution set
     if finetune_test_dataset is not None:
-        in_test_dl = DataLoader(finetune_test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+        in_test_dl = DataLoader(finetune_test_dataset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS)
     else:
         in_test_dl = None
 

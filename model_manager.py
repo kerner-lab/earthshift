@@ -339,7 +339,9 @@ class ModelManager:
                 if self.wavelength == 'rgb':
                     modalities = ['S2L2A']
                     bands = {'S2L2A': ['BLUE', 'GREEN', 'RED']}
-                elif self.wavelength == 'rgbn':
+                elif self.wavelength in ('rgbn', 'rgbn_landsat'):
+                    # TerraMind has no Landsat modality: Landsat 8 B4/B3/B2/B5 go through the S2L2A
+                    # embedding (B5 0.85-0.88um ~ S2 B8A, NIR_NARROW)
                     modalities = ['S2L2A']
                     bands = {'S2L2A': ['BLUE', 'GREEN', 'RED', 'NIR_NARROW']}
                 elif self.wavelength == 's2':

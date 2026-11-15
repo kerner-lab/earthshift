@@ -180,9 +180,11 @@ class ModelManager:
                     return None
             case "galileo":
                 if self.task == 'class':
-                    return GalileoClassifier(model, self.img_channels, num_classes=self.num_classes)
+                    return GalileoClassifier(model, self.img_channels, num_classes=self.num_classes,
+                                             wavelength=self.wavelength)
                 elif self.task == 'semseg':
-                    return GalileoSegmentation(model, self.img_channels, num_classes=self.num_classes)
+                    return GalileoSegmentation(model, self.img_channels, num_classes=self.num_classes,
+                                               wavelength=self.wavelength)
             case "olmo-earth":
                 if self.task == 'class':
                     return OlmoEarthClassifier(model, self.get_bands(), num_classes=self.num_classes,

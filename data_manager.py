@@ -919,6 +919,14 @@ def scale_s2(x):
     return x / 10000.0
 
 
+def scale_8bit(x):
+    """
+    Scale 0-255 float images to 0-1. torchgeo's RESISC45 and UCMerced return float tensors, which
+    ConvertImageDtype leaves unscaled (it only rescales integer dtypes). Module level so it pickles.
+    """
+    return x / 255.0
+
+
 class DataManager:
     """
     Data Manager class
@@ -938,6 +946,8 @@ class DataManager:
         # These datasets normalise in their own __getitem__, so the model transforms skip it.
         self.prenormalized = any(k in dataset_pair for k in ("BenV2", "Sen1Floods11", "ChesapeakeCVPR", "BRIGHT",
                                                              "CloudSen12"))
+        # torchgeo RGB datasets loaded as 0-255 floats, scaled to 0-1 before any normalisation
+        self.float_8bit = dataset_pair in ("RESISC45-UCMerced", "RESISC45-UCMerced-sub", "UCMerced-RESISC45")
         self.transform = transform
         self.mask = mask
         self.imagenet_mean = [0.485, 0.456, 0.406]
@@ -1082,6 +1092,8 @@ class DataManager:
         """
 
         t = []
+        if self.float_8bit:
+            t.append(transforms.Lambda(scale_8bit))
         match self.model_name:
             case "croma":
                 t.append(transforms.Resize((120, 120)))

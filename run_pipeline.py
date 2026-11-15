@@ -192,7 +192,7 @@ if __name__ == '__main__':
 
 
     # For lr-sweep on large sensor-shift datasets, use 20% subset to speed up experiment
-    if tag == 'lr-sweep' and (data_pair in ('Sen1Floods11-S2-S1', 'BenV2-S2-S1', 'BenV2-L2A-L1C') or train_val_only):
+    if tag == 'lr-sweep' and (data_pair in ('BenV2-S2-S1', 'BenV2-L2A-L1C') or train_val_only):
         subset_generator = torch.Generator().manual_seed(seed)
         for name, ds in [('train', finetune_dataset_train), ('val', finetune_dataset_val),
                          ('test', finetune_dataset_test), ('ood_test', test_dataset)]:

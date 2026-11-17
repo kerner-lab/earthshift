@@ -1,6 +1,5 @@
 # 🌍 EarthShift Testbed
 
-|:---:|:---:|
 
 **EarthShift** is the first public testbed for benchmarking the robustness of geospatial foundation models (GFMs) across multiple realistic distribution shifts encountered in remote sensing.
 

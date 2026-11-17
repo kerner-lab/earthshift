@@ -92,7 +92,7 @@ if __name__ == '__main__':
     config_task = config['task'][task]['data-pairs'][data_pair]
     config_task['finetune_type'] = finetune_type
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
 
     # Instantiate ModelManager
     modelmanager = ModelManager(model_name=model_type, task=task, num_classes=len(config_task['finetune_classes']),

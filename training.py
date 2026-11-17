@@ -61,7 +61,7 @@ def classification_loop(model,
     import numpy as np
     import os
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     global_step = global_step_start
 
     for epoch in range(start_epoch, epochs):
@@ -270,7 +270,7 @@ def segmentation_loop(
     waves=None,
     num_classes=None,
     ):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     train_miou = JaccardIndex(task="multiclass", num_classes=num_classes, ignore_index=255).to(device)
     val_miou = JaccardIndex(task="multiclass", num_classes=num_classes, ignore_index=255).to(device)
 
@@ -371,7 +371,7 @@ def finetune(model,
              resume_checkpoint: str = None,
              seed: int = None):
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
 
     # --- DataLoaders
     train_dl = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=NUM_WORKERS)

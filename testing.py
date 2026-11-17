@@ -114,7 +114,7 @@ def segmentation_inference(model,
     :param waves:
     :return:
     """
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
 
     # Setting up miou
     miou_metric = JaccardIndex(task="multiclass", num_classes=num_classes, ignore_index=255).to(device)
@@ -165,7 +165,7 @@ def predict(model,
     else:
         in_test_dl = None
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
 
     # Maintain criterion loop for classification and segmentation
     # Criteria

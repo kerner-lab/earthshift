@@ -15,7 +15,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 from sklearn.linear_model import LinearRegression
-import seaborn as sns
+from scipy.stats import kendalltau
 import os
 
 parser = argparse.ArgumentParser()
@@ -25,6 +25,8 @@ parser.add_argument('--frozen_filename', type=str, default=None,
                     help='File of frozen-backbone (head fine-tuning) data to plot (without .csv)')
 parser.add_argument('--full_filename', type=str, default=None,
                     help='File of full finetuning to plot (without .csv)')
+parser.add_argument('--out_dir', type=str, default=None,
+                    help='Where outputs are saved (default: <root_dir>/effective)')
 args = parser.parse_args()
 if args.frozen_filename is None and args.full_filename is None:
     parser.error('Provide at least one of --frozen_filename / --full_filename')
@@ -37,49 +39,93 @@ full_filename = args.full_filename
 
 FROZEN_CSV = '{}/{}.csv'.format(root_dir, frozen_filename) if frozen_filename else None
 FULL_CSV = '{}/{}.csv'.format(root_dir, full_filename) if full_filename else None
-OUTPUT_DIR = '{}/effective'.format(root_dir)
+OUTPUT_DIR = args.out_dir or '{}/effective'.format(root_dir)
 
 # Task groupings by shift type
 SHIFT_GROUPS = {
     'Temporal Shift': ['ftw-all-window', 'SA Temporal', 'Germany Temporal', 'France RPG 5year'],
-    'Scale Shift': ['Chesapeake-CVPR-Landsat', 'Chesapeake-CVPR-NAIP'],
-    'Sensor Shift': ['BenV2-S2-S1', 'Sen1Floods11-S2-S1', 'RGB - RGE1', 'RESISC45-UCMerced', 'UCMerced-RESISC45',
-                     'DeepGlobe-DFC2022'],
-    'Geographic Shift': ['Geo Germany-Cambodia', 'Geo Germany-Denmark', 'BRIGHT'],
-    'Processing Shift': ['CloudSEN-L2A-L1C', 'FTW-France-AI4Boundaries']
+    'Scale Shift': ['RESISC45-UCMerced', 'UCMerced-RESISC45', 'Chesapeake-NAIP-Landsat', 'Chesapeake-Landsat-NAIP'],
+    'Sensor Shift': ['BenV2-S2-S1', 'Sen1Floods11-S2-S1', 'RGB - RGE1'],
+    'Geographic Shift': ['Geo Germany-Cambodia', 'Geo Germany-Denmark', 'BRIGHT', 'DeepGlobe-DFC2022'],
+    'Processing Shift': ['CloudSEN-L2A-L1C', 'BenV2-L2A-L1C', 'FTW-AI4Boundaries']
 }
 
 # Color of the y=x (no degradation) reference line
 YX_COLOR = '#d62728'
 
-# Display names for task legend labels
+# Display names for task legend labels (shift type is given by the panel, so just source→target)
 TASK_DISPLAY_NAMES = {
-    'ftw-all-window':  'Season-to-Season',
-    'SA Temporal':     'SA Season-to-Season',
-    'Germany Temporal':'Germany Year-to-Year',
-    'BRIGHT':          'BRIGHT Turkey-Morocco',
+    'ftw-all-window':       'FTW Season→Season',
+    'SA Temporal':          'SA Season→Season',
+    'Germany Temporal':     'Germany Year→Year',
+    'France RPG 5year':     'France RPG Year→Year+5',
+    'RESISC45-UCMerced':    'RESISC45→UCMerced',
+    'UCMerced-RESISC45':    'UCMerced→RESISC45',
+    'Chesapeake-NAIP-Landsat': 'Chesapeake NAIP→Landsat',
+    'Chesapeake-Landsat-NAIP': 'Chesapeake Landsat→NAIP',
+    'BenV2-S2-S1':          'BenV2 S2→S1',
+    'Sen1Floods11-S2-S1':   'Sen1Floods11 S2→S1',
+    'RGB - RGE1':           'RGB→RGE1',
+    'Geo Germany-Cambodia': 'Germany→Cambodia',
+    'Geo Germany-Denmark':  'Germany→Denmark',
+    'BRIGHT':               'BRIGHT Turkey→Morocco',
+    'DeepGlobe-DFC2022':    'DeepGlobe→DFC2022',
+    'CloudSEN-L2A-L1C':     'CloudSEN12 L2A→L1C',
+    'BenV2-L2A-L1C':        'BenV2 L2A→L1C',
+    'FTW-AI4Boundaries':    'FTW→AI4Boundaries',
 }
 
-# Marker shapes per task for visual differentiation
-TASK_MARKERS = {
-    'ftw-all-window':      'o',
-    'SA Temporal':         's',
-    'Germany Temporal':    '^',
-    'RESISC45-UCMerced':   'D',
-    'UCMerced-RESISC45':   'P',
-    'BenV2-S2-S1':         'X',
-    'Sen1Floods11-S2-S1':  '*',
-    'RGB - RGE1':          'h',
-    'Geo Germany-Cambodia':'v',
-    'Geo Germany-Denmark': '>',
-    'DeepGlobe-DFC2022':   'p',
-    'France RPG 5year':    '<',
-    'Chesapeake-CVPR-Landsat': 'd',
-    'Chesapeake-CVPR-NAIP':    'H',
-    'BRIGHT':              '8',
-    'CloudSEN-L2A-L1C':    'o',
-    'FTW-France-AI4Boundaries': 's',
+# Task colours are only distinct within a shift type: the same few colours are reused in every panel.
+# Okabe-Ito colours (colourblind-safe, no red/green pair): blue, orange, sky blue, reddish purple.
+TASK_PALETTE = ['#0072B2', '#E69F00', '#56B4E9', '#CC79A7']
+TASK_COLORS = {}  # filled in main() once we know which tasks have data
+
+
+def assign_task_colors(present_tasks):
+    """Number the tasks with data within each shift group and give them palette colours in that order."""
+    for tasks in SHIFT_GROUPS.values():
+        with_data = [t for t in tasks if t in present_tasks]
+        if len(with_data) > len(TASK_PALETTE):
+            raise ValueError(f'{len(with_data)} tasks in one shift group but only {len(TASK_PALETTE)} colours')
+        for i, t in enumerate(with_data):
+            TASK_COLORS[t] = TASK_PALETTE[i]
+
+# One marker per model; unknown models fall back to a circle
+MODEL_MARKERS = {
+    'clay': 'o',
+    'clip': 's',
+    'croma': '^',
+    'dinov3_large_sat': 'v',
+    'dofa': 'D',
+    'galileo': 'd',
+    'prithvi': '*',
+    'resnet50_imgnet': 'P',
+    'resnet_random': 'X',
+    'terrafm': 'p',
+    'terramind': 'h',
+    'vit_imgnet': '<',
+    'vit_random': '>',
 }
+# Kept in the fits and CSVs, but not drawn or listed in the legend
+HIDDEN_MODELS = {'olmo-earth'}
+# Not in the paper: dropped when the CSVs are loaded, so they are left out of the fits, rho, tau, ranks and CSVs
+EXCLUDED_MODELS = {'galileo', 'olmo-earth'}
+
+
+def marker_size(marker, base):
+    """Stars read smaller than other markers at the same size."""
+    return base * 1.4 if marker == '*' else base
+
+
+def task_handle(task, markersize):
+    return mlines.Line2D([], [], color=TASK_COLORS.get(task, 'gray'), marker='o', linestyle='None',
+                         markersize=markersize, label=TASK_DISPLAY_NAMES.get(task, task))
+
+
+def model_handle(model, markersize):
+    m = MODEL_MARKERS.get(model, 'o')
+    return mlines.Line2D([], [], color='0.4', marker=m, linestyle='None', markeredgecolor='black',
+                         markeredgewidth=0.3, markersize=marker_size(m, markersize), label=model)
 
 
 # ============================================================================
@@ -96,6 +142,71 @@ def convert_to_float(val):
         else:
             return float(val)
     return float(val)
+
+
+# A run counts as a failed adaptation if its ID score is below this fraction of the task's median ID score
+FAILED_ID_FRACTION = 0.5
+# (task, model) runs that fall under the threshold but were checked and are genuine results
+VERIFIED_RUNS = {
+    ('RGB - RGE1', 'galileo'),
+    ('RESISC45-UCMerced', 'galileo'),
+    ('UCMerced-RESISC45', 'galileo'),
+    ('BenV2-S2-S1', 'galileo'),
+    ('ftw-all-window', 'dinov3_large_sat'),
+    ('FTW-AI4Boundaries', 'dinov3_large_sat'),
+    ('RESISC45-UCMerced', 'resnet_random'),
+    ('UCMerced-RESISC45', 'resnet_random'),
+}
+SHOW_FAILED_LEGEND = False  # set in main(): only list the hollow-marker entry if a run is actually flagged
+
+
+def mark_failed_runs(df):
+    """Add a 'Failed' column: ID score < FAILED_ID_FRACTION x median ID score of all models on that task,
+    except runs listed in VERIFIED_RUNS."""
+    median_id = df.groupby('Task')['Avg Test ID Acc'].transform('median')
+    verified = pd.Series(list(zip(df['Task'], df['Model'])), index=df.index).isin(VERIFIED_RUNS)
+    df['Failed'] = (df['Avg Test ID Acc'] < FAILED_ID_FRACTION * median_id) & ~verified
+    return df
+
+
+def ranking_agreement(df_shift, shift_name):
+    """
+    Kendall's tau between models' ID and OOD scores, computed separately for each task in the shift
+    (one seed-averaged point per model, failed runs and hidden models excluded), then averaged over tasks.
+    Tasks are not pooled: differences in task difficulty would inflate a pooled tau.
+    Returns (mean tau over tasks, list of per-task rows).
+    """
+    rows = []
+    for task in SHIFT_GROUPS[shift_name]:
+        d = df_shift[(df_shift['Task'] == task) & ~df_shift['Model'].isin(HIDDEN_MODELS)]
+        d = d.dropna(subset=['Avg Test ID Acc', 'Avg Test OOD Acc'])
+        if d.empty:
+            continue
+        kept = d[~d['Failed']]
+        # tau needs at least 3 models to mean anything (with 2 it is always +-1)
+        tau = kendalltau(kept['Avg Test ID Acc'], kept['Avg Test OOD Acc'])[0] if len(kept) >= 3 else np.nan
+        rows.append({'Task': task, 'n_models': len(kept), 'n_failed': int(d['Failed'].sum()), 'tau': tau})
+    taus = [r['tau'] for r in rows if not np.isnan(r['tau'])]
+    return (float(np.mean(taus)) if taus else np.nan), rows
+
+
+def fmt_tau(tau):
+    return '\u03c4(ID, OOD) = ' + ('n/a' if np.isnan(tau) else f'{tau:.2f}'.replace('-', '\u2212'))
+
+
+def scatter_model(ax, df_sub, color, marker, size, linewidth, **kw):
+    """Filled markers for normal runs, hollow markers (task colour outline) for failed adaptations."""
+    ok = ~df_sub['Failed'].astype(bool)
+    ax.scatter(df_sub.loc[ok, 'Avg Test ID Acc'], df_sub.loc[ok, 'Avg Test OOD Acc'], c=[color], marker=marker,
+               s=size, edgecolors='black', linewidth=linewidth, **kw)
+    if (~ok).any():
+        ax.scatter(df_sub.loc[~ok, 'Avg Test ID Acc'], df_sub.loc[~ok, 'Avg Test OOD Acc'], facecolors='none',
+                   edgecolors=[color], marker=marker, s=size, linewidth=max(1.0, 3 * linewidth), **kw)
+
+
+def failed_handle(markersize):
+    return mlines.Line2D([], [], color='0.4', marker='o', linestyle='None', markerfacecolor='none',
+                         markeredgewidth=1.2, markersize=markersize, label='Failed adaptation (excl. from \u03c4)')
 
 
 def calculate_effective_robustness(df_data):
@@ -153,42 +264,25 @@ def bootstrap_confidence_band(id_vals, ood_vals, id_range, n_bootstrap=1000):
     return lower_bound, upper_bound
 
 
-def plot_shift(ax, df_data, shift_name, setting_name, model_colors, show_legend=False, show_task_legend=False, xlim=None,
+def plot_shift(ax, df_data, shift_name, setting_name, models, show_legend=False, show_task_legend=False, xlim=None,
                legends_outside=False):
     """Plot a single shift type on given axis"""
 
     slope, intercept, df_clean = calculate_effective_robustness(df_data)
 
-    # Scatter: color by model, shape by task
-    seen_models = set()
-    model_handles = []
+    # Scatter: colour by task (shift combination), shape by model
     task_handles = []
-    seen_tasks = set()
-
-    for task_name in df_clean['Task'].unique():
-        marker = TASK_MARKERS.get(task_name, 'o')
+    present = set(df_clean['Task'])
+    for task_name in [t for t in SHIFT_GROUPS[shift_name] if t in present]:
         df_task = df_clean[df_clean['Task'] == task_name]
         for model in df_task['Model'].unique():
+            if model in HIDDEN_MODELS:
+                continue
             df_sub = df_task[df_task['Model'] == model]
-            ax.scatter(df_sub['Avg Test ID Acc'],
-                       df_sub['Avg Test OOD Acc'],
-                       c=[model_colors[model]],
-                       marker=marker,
-                       s=80,
-                       alpha=0.7,
-                       edgecolors='black',
-                       linewidth=0.5)
-            if model not in seen_models:
-                model_handles.append(mlines.Line2D(
-                    [], [], color=model_colors[model], marker='o', linestyle='None',
-                    markersize=7, label=model))
-                seen_models.add(model)
-        if task_name not in seen_tasks:
-            display_name = TASK_DISPLAY_NAMES.get(task_name, task_name)
-            task_handles.append(mlines.Line2D(
-                [], [], color='black', marker=marker, linestyle='None',
-                markersize=7, label=display_name))
-            seen_tasks.add(task_name)
+            marker = MODEL_MARKERS.get(model, 'o')
+            scatter_model(ax, df_sub, TASK_COLORS.get(task_name, 'gray'), marker,
+                          marker_size(marker, 80), 0.5, alpha=0.8)
+        task_handles.append(task_handle(task_name, 8))
 
     # Bootstrap confidence band
     id_vals = df_clean['Avg Test ID Acc'].values
@@ -218,8 +312,9 @@ def plot_shift(ax, df_data, shift_name, setting_name, model_colors, show_legend=
         ax.set_xlim(xlim)
 
     # Equation annotation
-    ax.text(0.02, 0.98, f'OOD = {slope:.3f}×ID + {intercept:.3f}',
-            transform=ax.transAxes, fontsize=11, verticalalignment='top',
+    tau, _ = ranking_agreement(df_data, shift_name)
+    ax.text(0.02, 0.98, f'OOD = {slope:.3f}×ID + {intercept:.3f}\n{fmt_tau(tau)}',
+            transform=ax.transAxes, fontsize=11, fontweight='bold', verticalalignment='top',
             bbox=dict(boxstyle='round', facecolor='white', alpha=0.8,
                       edgecolor='black', linewidth=1))
 
@@ -236,14 +331,13 @@ def plot_shift(ax, df_data, shift_name, setting_name, model_colors, show_legend=
     # Model color legend — only on top-left subplot, includes CI and y=x entries
     if show_legend:
         # List every model (not just those present in this panel)
-        model_handles = [mlines.Line2D([], [], color=c, marker='o', linestyle='None', markersize=7, label=m)
-                         for m, c in model_colors.items()]
+        model_handles = [model_handle(m, 7) for m in models]
         extra_handles = [
             mlines.Line2D([], [], color='black', linestyle='--', linewidth=2, label='Best Fit'),
             mlines.Line2D([], [], color=YX_COLOR, linestyle='-', linewidth=2.2, alpha=0.9,
                           label='y=x (no degradation)'),
             plt.Rectangle((0, 0), 1, 1, fc='black', alpha=0.2, label='95% CI'),
-        ]
+        ] + ([failed_handle(7)] if SHOW_FAILED_LEGEND else [])
         if legends_outside:
             # Model legend goes above the figure so it doesn't collide with the task legend
             legends.append(ax.legend(handles=model_handles + extra_handles, loc='lower center',
@@ -262,7 +356,7 @@ def plot_shift(ax, df_data, shift_name, setting_name, model_colors, show_legend=
 # ============================================================================
 
 # Physical size of the figure in inches. 6.875in = CVPR/ICCV \textwidth; height leaves room for a caption.
-PAGE_FIG_SIZE = (6.875, 8.25)
+PAGE_FIG_SIZE = (6.875, 4.9)  # full text width, 2 rows x 3 columns
 
 
 def _fmt_line(slope, intercept):
@@ -287,11 +381,36 @@ def _emptiest_corner(ax, x, y):
     return corners[best][1]
 
 
-def plot_shift_page(ax, df_data, shift_name, model_colors, xlim=None):
+def _clear_boxes(ax, x, y, legend, fit_box, step=0.06, max_steps=12):
+    """Widen the y-range until no data point sits under the task legend or the fit box.
+    The legend is anchored to the top of the axes, so overlaps are cleared by raising the top limit;
+    a fit box at the bottom is cleared by lowering the bottom limit (one at the top: raising the top)."""
+    xy = np.column_stack([x, y])
+    fig = ax.figure
+
+    def n_under(artist):
+        fig.canvas.draw()
+        # pad by about half a marker so points poking out from under the box also count
+        bb = artist.get_window_extent().padded(10).transformed(ax.transAxes.inverted())
+        pts = ax.transAxes.inverted().transform(ax.transData.transform(xy))
+        return int(np.sum((pts[:, 0] >= bb.x0) & (pts[:, 0] <= bb.x1) &
+                          (pts[:, 1] >= bb.y0) & (pts[:, 1] <= bb.y1)))
+
+    fit_at_top = fit_box.get_va() == 'top'
+    for _ in range(max_steps):
+        lo, hi = ax.get_ylim()
+        r = hi - lo
+        top_hit = n_under(legend) > 0 or (fit_at_top and n_under(fit_box) > 0)
+        bottom_hit = not fit_at_top and n_under(fit_box) > 0
+        if not (top_hit or bottom_hit):
+            break
+        ax.set_ylim(lo - step * r * bottom_hit, hi + step * r * top_hit)
+
+
+def plot_shift_page(ax, df_data, shift_name, xlim=None):
     """Compact panel for the full-page figure. Placeholder panel if the shift has no data yet."""
     tasks = SHIFT_GROUPS[shift_name]
-    task_handles = [mlines.Line2D([], [], color='black', marker=TASK_MARKERS.get(t, 'o'), linestyle='None',
-                                  markersize=4.5, label=TASK_DISPLAY_NAMES.get(t, t)) for t in tasks]
+    task_handles = [task_handle(t, 4.5) for t in tasks]
     ax.set_title(shift_name, fontsize=10, fontweight='bold', pad=4)
     ax.grid(True, alpha=0.25, linewidth=0.5)
     ax.tick_params(labelsize=7, length=2.5, pad=2)
@@ -311,10 +430,12 @@ def plot_shift_page(ax, df_data, shift_name, model_colors, xlim=None):
 
         for task_name in present:
             df_task = df_clean[df_clean['Task'] == task_name]
-            ax.scatter(df_task['Avg Test ID Acc'], df_task['Avg Test OOD Acc'],
-                       c=[model_colors[m] for m in df_task['Model']],
-                       marker=TASK_MARKERS.get(task_name, 'o'), s=26, alpha=0.85,
-                       edgecolors='black', linewidth=0.3, zorder=3)
+            for model, df_sub in df_task.groupby('Model'):
+                if model in HIDDEN_MODELS:
+                    continue
+                marker = MODEL_MARKERS.get(model, 'o')
+                scatter_model(ax, df_sub, TASK_COLORS.get(task_name, 'gray'), marker,
+                              marker_size(marker, 26), 0.3, alpha=0.85, zorder=3)
 
         id_vals = df_clean['Avg Test ID Acc'].values
         ood_vals = df_clean['Avg Test OOD Acc'].values
@@ -332,22 +453,26 @@ def plot_shift_page(ax, df_data, shift_name, model_colors, xlim=None):
 
         # Fit equation in whichever free corner has the fewest points
         tx, ty, ha, va = _emptiest_corner(ax, id_vals, ood_vals)
-        ax.text(tx, ty, _fmt_line(slope, intercept), transform=ax.transAxes, fontsize=7,
+        tau, _ = ranking_agreement(df_data, shift_name)
+        fit_box = ax.text(tx, ty, _fmt_line(slope, intercept) + '\n' + fmt_tau(tau), transform=ax.transAxes, fontsize=7, fontweight='bold',
                 ha=ha, va=va, zorder=5,
                 bbox=dict(boxstyle='round,pad=0.25', facecolor='white', alpha=0.9,
                           edgecolor='0.6', linewidth=0.5))
 
-    # Task (marker) legend in the upper-left, the region above y=x that is empty when models degrade
-    ax.legend(handles=task_handles, loc='upper left', fontsize=6.5, frameon=True, framealpha=0.9,
-              edgecolor='0.7', handletextpad=0.3, borderpad=0.35, labelspacing=0.3, borderaxespad=0.4)
+    # Task (colour) legend in the upper-left, the region above y=x that is empty when models degrade
+    leg = ax.legend(handles=task_handles, loc='upper left', fontsize=6.5, frameon=True, framealpha=0.9,
+                    edgecolor='0.7', handletextpad=0.3, borderpad=0.35, labelspacing=0.3, borderaxespad=0.4)
+    if len(df_clean) >= 2:
+        _clear_boxes(ax, df_clean['Avg Test ID Acc'].values, df_clean['Avg Test OOD Acc'].values,
+                     leg, fit_box)
 
 
-def make_page_figure(data, key, model_colors, out_stem):
-    """3x2 full-page figure: five shift panels + one legend panel."""
+def make_page_figure(data, key, models, out_stem):
+    """2x3 full-width figure: five shift panels + one legend panel (bottom right)."""
     shifts = ['Temporal Shift', 'Scale Shift', 'Sensor Shift', 'Geographic Shift', 'Processing Shift']
     df = data[key]
 
-    fig, axes = plt.subplots(3, 2, figsize=PAGE_FIG_SIZE, layout='constrained')
+    fig, axes = plt.subplots(2, 3, figsize=PAGE_FIG_SIZE, layout='constrained')
     fig.get_layout_engine().set(w_pad=0.04, h_pad=0.04, hspace=0.04, wspace=0.04)
     axes = axes.ravel()
 
@@ -360,26 +485,25 @@ def make_page_figure(data, key, model_colors, out_stem):
             # Tight x-range around the ID data (y=x would otherwise stretch it to the min OOD value)
             pad = 0.05 * (ids.max() - ids.min())
             xlim = (ids.min() - pad, ids.max() + pad)
-        plot_shift_page(ax, df_shift, shift_name, model_colors, xlim=xlim)
+        plot_shift_page(ax, df_shift, shift_name, xlim=xlim)
 
     # Legend panel
     leg_ax = axes[-1]
     leg_ax.axis('off')
-    model_handles = [mlines.Line2D([], [], color=c, marker='o', linestyle='None', markersize=5.5,
-                                   markeredgecolor='black', markeredgewidth=0.3, label=m)
-                     for m, c in model_colors.items()]
+    model_handles = [model_handle(m, 5.5) for m in models]
     line_handles = [
         mlines.Line2D([], [], color=YX_COLOR, linestyle='-', linewidth=1.6, label='y = x (no degradation)'),
         mlines.Line2D([], [], color='black', linestyle='--', linewidth=1.2, label='Linear fit'),
         plt.Rectangle((0, 0), 1, 1, fc='black', alpha=0.18, label='95% CI (bootstrap)'),
-    ]
+    ] + ([failed_handle(5.5)] if SHOW_FAILED_LEGEND else [])
     leg_models = leg_ax.legend(handles=model_handles, title='Model', loc='upper center',
-                               bbox_to_anchor=(0.5, 1.0), ncol=2, fontsize=7.5, title_fontsize=8.5,
-                               frameon=False, columnspacing=1.0, handletextpad=0.3, labelspacing=0.45)
+                               bbox_to_anchor=(0.42, 1.02), ncol=2, fontsize=6.5, title_fontsize=7.5,
+                               frameon=False, columnspacing=0.6, handletextpad=0.1, handlelength=1.2,
+                               labelspacing=0.35)
     leg_models._legend_box.align = 'left'
     leg_ax.add_artist(leg_models)
-    leg_ax.legend(handles=line_handles, loc='upper center', bbox_to_anchor=(0.5, 0.36), ncol=1,
-                  fontsize=7.5, frameon=False, handlelength=2.2, labelspacing=0.45)
+    leg_ax.legend(handles=line_handles, loc='upper center', bbox_to_anchor=(0.5, 0.30), ncol=1,
+                  fontsize=6.5, frameon=False, handlelength=2.2, labelspacing=0.35)
 
     fig.supxlabel('In-distribution performance', fontsize=9.5)
     fig.supylabel('Out-of-distribution performance', fontsize=9.5)
@@ -409,20 +533,28 @@ def main():
 
     data = {}
     for key, _, path in settings:
-        df = pd.read_csv(path)
+        try:
+            df = pd.read_csv(path)
+        except UnicodeDecodeError:
+            # CSVs saved from Excel on macOS can be Mac Roman encoded (e.g. a '—' placeholder)
+            df = pd.read_csv(path, encoding='mac_roman')
         df = df.dropna(subset=['Task', 'Model'])
+        df = df[~df['Model'].isin(EXCLUDED_MODELS)]
         df['Avg Test ID Acc'] = df['Avg Test ID Acc'].apply(convert_to_float)
         df['Avg Test OOD Acc'] = df['Avg Test OOD Acc'].apply(convert_to_float)
-        data[key] = df
+        data[key] = mark_failed_runs(df)
+        if data[key]['Failed'].any():
+            global SHOW_FAILED_LEGEND
+            SHOW_FAILED_LEGEND = True
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # Get model colors
     all_models = sorted(set().union(*[set(df['Model'].unique()) for df in data.values()]))
-    colors = sns.color_palette("husl", len(all_models))
-    model_colors = dict(zip(all_models, colors))
-
+    assign_task_colors(set().union(*[set(df['Task']) for df in data.values()]))
     print(f"Found {len(all_models)} models: {', '.join(all_models)}")
+    unstyled = sorted(set(all_models) - set(MODEL_MARKERS) - HIDDEN_MODELS)
+    if unstyled:
+        print(f"  WARNING: no marker for model(s) {unstyled}; drawn as circles")
 
     # Report tasks in SHIFT_GROUPS with no data, and tasks in the CSV not in any group
     grouped_tasks = {t for tasks in SHIFT_GROUPS.values() for t in tasks}
@@ -473,6 +605,25 @@ def main():
 
             print(f"  {key}: OOD = {slope:.3f} × ID + {intercept:.3f}")
             print(f"          Mean ρ = {df_clean['Effective Robustness (ρ)'].mean():.4f}")
+
+    # ========================================================================
+    # RANKING AGREEMENT: Kendall's tau(ID, OOD) per task, mean per shift
+    # ========================================================================
+
+    print("\n" + "=" * 80)
+    print(f"RANKING AGREEMENT (Kendall's tau per task; failed = ID < {FAILED_ID_FRACTION} x task median ID)")
+    print("=" * 80)
+
+    mean_tau = {}
+    for key, df in data.items():
+        print(f"\n[{key}]")
+        print(f"  {'Shift':<18} {'Task':<26} {'n_models':>8} {'n_failed':>8} {'tau':>7}")
+        for shift_name in shift_order:
+            tau, rows = ranking_agreement(df[df['Task'].isin(SHIFT_GROUPS[shift_name])], shift_name)
+            mean_tau[(key, shift_name)] = tau
+            for r in rows:
+                print(f"  {shift_name:<18} {r['Task']:<26} {r['n_models']:>8} {r['n_failed']:>8} {r['tau']:>7.3f}")
+            print(f"  {shift_name:<18} {'MEAN over tasks':<26} {'':>8} {'':>8} {tau:>7.3f}\n")
 
     # Combine all results
     df_all = {key: pd.concat(res, ignore_index=True) for key, res in results.items()}
@@ -584,7 +735,8 @@ def main():
                 'Min ρ': df_shift['Effective Robustness (ρ)'].min(),
                 'Max ρ': df_shift['Effective Robustness (ρ)'].max(),
                 'N Models': df_shift['Model'].nunique(),
-                'N Data Points': len(df_shift)
+                'N Data Points': len(df_shift),
+                'Mean Kendall tau (ID, OOD)': mean_tau[(setting, shift_name)]
             })
 
     df_summary = pd.DataFrame(summary_stats)
@@ -600,7 +752,7 @@ def main():
 
     for key in data:
         print(f"\nCreating full-page figure ({key})...")
-        make_page_figure(data, key, model_colors,
+        make_page_figure(data, key, [m for m in all_models if m not in HIDDEN_MODELS],
                          os.path.join(OUTPUT_DIR, f'effective_robustness_page_{key.lower()}'))
 
     # ========================================================================
@@ -630,7 +782,7 @@ def main():
 
         for col_idx, (key, title, _) in enumerate(settings):
             df_shift = data[key][data[key]['Task'].isin(tasks)]
-            extra_artists += plot_shift(axes[row_idx, col_idx], df_shift, shift_name, title, model_colors,
+            extra_artists += plot_shift(axes[row_idx, col_idx], df_shift, shift_name, title, [m for m in all_models if m not in HIDDEN_MODELS],
                        show_legend=(row_idx == 0 and col_idx == 0),     # model legend top-left
                        show_task_legend=(col_idx == n_cols - 1),        # task legend right column
                        xlim=xlim, legends_outside=(n_cols == 1))

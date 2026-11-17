@@ -18,7 +18,7 @@ EarthShift enables users to measure **distributional robustness** by comparing m
 - 📡 **Data sources** — can the model handle shifts between different data providers?
 - 🔭 **Spatial scales** — does the model transfer across different spatial resolutions?
 
-Our experiments across **8 geospatial foundation models** and **11 tasks** covering all 5 shift types reveal that GFMs consistently perform around **20% worse out-of-distribution**, regardless of model architecture, size, pre-training strategy, or fine-tuning approach. Strikingly, GFM robustness is similar to that of generic vision foundation models — and even fully-supervised models — highlighting that distributional robustness remains an open and critical challenge for the field.
+Our experiments across **7 geospatial foundation models** and **17 tasks** covering all 5 shift types reveal that GFMs consistently perform around **20% worse out-of-distribution**, regardless of model architecture, size, pre-training strategy, or fine-tuning approach. Strikingly, GFM robustness is similar to that of generic vision foundation models — and even fully-supervised models — highlighting that distributional robustness remains an open and critical challenge for the field.
 
 ---
 
@@ -32,7 +32,7 @@ EarthShift measures distribution shifts across five categories:
 | 📅 **Temporal** | Shifts across different time periods or seasons |
 | 🗺️ **Geographic** | Shifts across different geographic regions |
 | 🛰️ **Sensor** | Shifts between different remote sensing sensors |
-| 📡 **Data Source** | Shifts between different data collection sources or modalities |
+| 📡 **Processing** | Shifts between different data processing techniques |
 
 ---
 
@@ -80,3 +80,8 @@ We release our code and datasets to provide a testbed to guide future work towar
   Sen1Floods11 |   Open Access
   BigEarthNet v2 |  Community Data License Agreement -- Permissive -- Version 1.0
   m-EuroSat  |      MIT License
+  BRIGHT     | CC-BY-NC-4.0
+  France RPG | Licence Ouverte 2.0 
+  Chesapeake CVPR Landsat-NAIP | Open Data Commons Open Database License
+  CloudSen12  |  CC BY-NC 4.0
+  

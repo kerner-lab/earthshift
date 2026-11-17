@@ -38,8 +38,9 @@ class ModelManager:
     Model Manager class to load pre-trained models and manage specific details
     """
 
-    def __init__(self, model_name, task, num_classes, img_channels, wavelength, device):
+    def __init__(self, model_name, task, num_classes, img_channels, wavelength, device, dataset_pair=None):
         self.model_name = model_name
+        self.dataset_pair = dataset_pair
         self.task = task
         self.num_classes = num_classes
         self.img_channels = img_channels
@@ -127,10 +128,15 @@ class ModelManager:
                 else:
                     return None
             case "terrafm":
+                native_input = None
+                if self.dataset_pair in TERRAFM_NATIVE_PAIRS:
+                    native_input = TerrafmInput(self.terrafm_module, self.wavelength, self.dataset_pair)
                 if self.task == 'class':
-                    return TerrafmClassifier(model, self.img_channels, num_classes=self.num_classes)
+                    return TerrafmClassifier(model, self.img_channels, num_classes=self.num_classes,
+                                             native_input=native_input)
                 elif self.task == 'semseg':
-                    return TerrafmSegmentation(model, self.img_channels, num_classes=self.num_classes)
+                    return TerrafmSegmentation(model, self.img_channels, num_classes=self.num_classes,
+                                               native_input=native_input)
                 else:
                     return None
             case "prithvi":
@@ -247,6 +253,7 @@ class ModelManager:
                 spec = importlib.util.spec_from_file_location("terrafm", terrafm_code_path)
                 terrafm_module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(terrafm_module)
+                self.terrafm_module = terrafm_module  # provides STATS / normalize() / S2_BANDS
                 # Get TerraFM backbone
                 model = terrafm_module.terrafm_base(num_classes=0)
 

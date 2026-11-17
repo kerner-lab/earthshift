@@ -7,6 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from torchgeo.datasets import RESISC45, UCMerced
 from geobench_v2.datasets.benv2 import GeoBenchBENV2
+from models.terrafm import TERRAFM_NATIVE_PAIRS
 import os
 import rasterio
 from torchvision.io import read_image
@@ -562,10 +563,11 @@ class Sen1Floods11(Dataset):
         ('out', 'test'):  'flood_test_data.csv',
     }
 
-    def __init__(self, root, split='train', finetune_state='in'):
+    def __init__(self, root, split='train', finetune_state='in', scale_s2=True):
         self.root = Path(root)
         self.split = split
         self.finetune_state = finetune_state
+        self.scale_s2 = scale_s2  # False -> raw S2 digital numbers (TerraFM normalises them itself)
 
         base = self.root / 'data' / 'flood_events' / 'HandLabeled'
         self.label_dir = base / 'LabelHand'
@@ -610,7 +612,7 @@ class Sen1Floods11(Dataset):
         with rasterio.open(label_path) as src:
             label = src.read(1).astype(np.int16)
 
-        if self.finetune_state == 'in':
+        if self.finetune_state == 'in' and self.scale_s2:
             image = image / 10000.0  # S2 reflectance normalisation
 
         # Remap -1 (invalid/no-data) to 255 for ignore_index compatibility
@@ -620,6 +622,15 @@ class Sen1Floods11(Dataset):
         label = torch.from_numpy(label).long()
 
         return image, label
+
+
+class _NoNormalizer(torch.nn.Module):
+    """geobench_v2 data_normalizer that returns raw values."""
+    def __init__(self, stats=None, band_order=None, image_keys=None):
+        super().__init__()
+
+    def forward(self, sample):
+        return sample
 
 
 class DataManager:
@@ -645,6 +656,8 @@ class DataManager:
 
         # Update model name to be lower case
         self.model_name = self.model_name.lower()
+        # TerraFM applies its own published preprocessing on the Sentinel sensor-shift pairs
+        self.terrafm_native = self.model_name == 'terrafm' and self.dataset_pair in TERRAFM_NATIVE_PAIRS
 
 
     def get_dataset(self, finetune_state, split):
@@ -694,7 +707,7 @@ class DataManager:
             case "Sen1Floods11-S2-S1":
                 if finetune_state == "in":
                     dataset = Sen1Floods11(root=self.root_dir + '/' + 'sen1floods11/v1.1', split=split,
-                                           finetune_state='in')
+                                           finetune_state='in', scale_s2=not self.terrafm_native)
                 elif finetune_state == "out":
                     dataset = Sen1Floods11(root=self.root_dir + '/' + 'sen1floods11/v1.1', split=split,
                                            finetune_state='out')
@@ -712,12 +725,19 @@ class DataManager:
             case "BenV2-S2-S1":
                 s2_bands = ['B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B11', 'B12']
                 s1_bands = ['VV', 'VH']
+                kw = {}
+                if self.terrafm_native:
+                    # TerraFM: all 12 bands it was pretrained on, raw values (normalised in the model).
+                    # geobench_v2 BENv2 'VV'/'VH' names are swapped, so request ['VH', 'VV'] to get [VV, VH].
+                    s2_bands = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B11', 'B12']
+                    s1_bands = ['VH', 'VV']
+                    kw['data_normalizer'] = _NoNormalizer
                 if finetune_state == "in":
                     dataset = GeoBenchBENV2(root=self.root_dir + '/' + 'benv2', split=split,
-                                            band_order={'s2': s2_bands}, return_stacked_image=False)
+                                            band_order={'s2': s2_bands}, return_stacked_image=False, **kw)
                 elif finetune_state == "out":
                     dataset = GeoBenchBENV2(root=self.root_dir + '/' + 'benv2', split=split,
-                                            band_order={'s1': s1_bands}, return_stacked_image=False)
+                                            band_order={'s1': s1_bands}, return_stacked_image=False, **kw)
             case _:
                 raise ValueError("Invalid dataset pair")
 
@@ -763,6 +783,10 @@ class DataManager:
                     pass
                 else:
                     t.append(transforms.ConvertImageDtype(torch.float32))
+                return transforms.Compose(t)
+            case "terrafm" if self.terrafm_native:
+                # Raw values; TerraFM normalises inside the model (models/terrafm.py: TerrafmInput)
+                t.append(transforms.Resize((224, 224)))
                 return transforms.Compose(t)
             case "terrafm" | "prithvi" | "olmo-earth" | "terramind" | "dofa" | "galileo":
                 t.append(transforms.Resize((224, 224)))

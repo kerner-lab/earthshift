@@ -97,7 +97,7 @@ if __name__ == '__main__':
     # Instantiate ModelManager
     modelmanager = ModelManager(model_name=model_type, task=task, num_classes=len(config_task['finetune_classes']),
                                 img_channels=config_task['img_channels'], wavelength=config_task['finetune_wavelength'],
-                                device=device)
+                                device=device, dataset_pair=data_pair)
 
     # Load model
     model = modelmanager.get_model()

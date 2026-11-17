@@ -269,7 +269,7 @@ def run_s2_to_s1_sensor_shift(model, model_type, test_dataset, finetune_dataset_
     rgb_weights = model.state_dict()
 
     modelmanager_s1 = ModelManager(model_name=model_type, task=task, num_classes=len(config_task['test_classes']),
-                                   img_channels=2, wavelength=config_task['test_wavelength'], device=device)
+                                   img_channels=2, wavelength=config_task['test_wavelength'], device=device, dataset_pair=data_pair)
     model_s1 = modelmanager_s1.get_model()
     s1_state = model_s1.state_dict()
     for key in s1_state.keys():
